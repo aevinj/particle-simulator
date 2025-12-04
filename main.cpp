@@ -7,10 +7,12 @@
 const int SCREEN_HEIGHT = 600;
 const int SCREEN_WIDTH = 800;
 const float GRAVITY = 800.f;
-const float DAMPENING = 1.f;
+const float DAMPENING = 0.8f;
+const float DRAG = 0.97f;
+const float FRICTION = 0.88f;
 
 struct Particle {
-        float radius = 15.f;
+        float radius = 7.f;
         sf::Vector2f velocity;
         sf::CircleShape particle;
 
@@ -25,11 +27,18 @@ struct Particle {
         void updatePos(float dt) {
             auto [x,y] = particle.getPosition();
 
-            updateVelocities(dt);
+            applyGravity(dt);
+
             x += velocity.x * dt;
             y += velocity.y * dt;
 
             bounce(x, y);
+
+            applyDrag();
+
+            if (y + radius >= SCREEN_HEIGHT) {
+                velocity.x *= FRICTION;
+            }
 
             particle.setPosition(x, y);
         }
@@ -52,8 +61,13 @@ struct Particle {
             }
         }
 
-        void updateVelocities(float dt) {
+        void applyGravity(float dt) {
             velocity.y += GRAVITY * dt;
+        }
+
+        void applyDrag() {
+            velocity.x *= DRAG;
+            velocity.y *= DRAG;
         }
 
         sf::CircleShape& getParticle() {return particle;}
@@ -99,8 +113,8 @@ int main() {
         sf::Clock clock;
 
         std::vector<Particle> particles;
-        particles.reserve(100);
-        for (int i = 0; i < 100; ++i) {
+        particles.reserve(500);
+        for (int i = 0; i < 500; ++i) {
             particles.emplace_back(sf::Vector2f(100.f,0.f));
         }
         
