@@ -85,10 +85,6 @@ bool checkCollision(Particle &a, Particle &b) {
 }
 
 void handleCollision(Particle &a, Particle &b) {
-    sf::Vector2f temp = a.velocity;
-    a.velocity = b.velocity;
-    b.velocity = temp;
-
     sf::Vector2f posA = a.getParticle().getPosition();
     sf::Vector2f posB = b.getParticle().getPosition();
 
@@ -105,6 +101,12 @@ void handleCollision(Particle &a, Particle &b) {
     b.particle.setPosition(posB + normal * (overlap * 0.5f));
 }
 
+void swapVelocities(Particle &a, Particle &b) {
+    sf::Vector2f temp = a.velocity;
+    a.velocity = b.velocity;
+    b.velocity = temp;
+}
+
 int main() {
         srand(time(NULL));  // for rand
         sf::RenderWindow window(sf::VideoMode(800,600), "Particle test");
@@ -113,8 +115,8 @@ int main() {
         sf::Clock clock;
 
         std::vector<Particle> particles;
-        particles.reserve(500);
-        for (int i = 0; i < 500; ++i) {
+        particles.reserve(300);
+        for (int i = 0; i < 300; ++i) {
             particles.emplace_back(sf::Vector2f(100.f,0.f));
         }
         
@@ -136,11 +138,23 @@ int main() {
                 for (int i = 0; i < particles.size(); ++i) {
                     for (int j = i + 1; j < particles.size(); ++j) {
                         if (checkCollision(particles[i], particles[j])) {
+                            swapVelocities(particles[i], particles[j]);
                             handleCollision(particles[i], particles[j]);
                         }
                     }
                 }
-               
+                
+                // positional relaxations only
+                for (int k = 0; k < 10; ++k) {
+                    for (int i = 0; i < particles.size(); ++i) {
+                        for (int j = i + 1; j < particles.size(); ++j) {
+                            if (checkCollision(particles[i], particles[j])) {
+                                handleCollision(particles[i], particles[j]);
+                            }
+                        }
+                    }
+                }   
+
                 window.display();
         }
         return 0;
