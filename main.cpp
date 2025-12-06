@@ -1,11 +1,32 @@
 #include <SFML/Graphics.hpp>
 #include "particle.hpp"
 #include <vector>
+#include <cmath>
 
 const int SCREEN_HEIGHT = 600;
 const int SCREEN_WIDTH = 800;
 const float SPAWN_DELAY = 0.005f;
-const int PARTICLE_COUNT = 1000;
+const int PARTICLE_COUNT = 200;
+
+void resolveCollision(Particle &a, Particle &b) {
+    sf::Vector2f v = a.position - b.position;
+    float square_dist = v.x*v.x + v.y*v.y;
+    float min_dist = a.radius + b.radius;
+
+    if (square_dist == 0.f || square_dist >= min_dist * min_dist) {
+        return;
+    }
+
+    float dist = std::sqrt(square_dist);
+    sf::Vector2f normal = v / dist;
+    float overlap = min_dist - dist;
+
+    const float stiffness = 0.8f;
+    float correction = overlap * 0.5f * stiffness;
+
+    a.position += normal * correction;
+    b.position -= normal * correction;
+}
 
 int main() {
     sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Simulator");
@@ -37,10 +58,22 @@ int main() {
             particle.applyGravity();
             particle.integrate(dt);
             particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+        }
+
+        const int iterations = 4;
+        for (int k = 0; k < iterations; ++k) {
+            for (int i = 0; i < particles.size(); ++i) {
+                for (int j = i + 1; j < particles.size(); ++j) {
+                    resolveCollision(particles[i], particles[j]);
+                }
+            }
+        }
+
+        for (auto& particle : particles) {
             auto p = particle.getParticle();
             window.draw(p);
-        }
-        
+        }    
+
         window.display();
     }
 }
