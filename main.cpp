@@ -5,6 +5,9 @@
 #include <cmath>
 #include "Particle.hpp"
 
+const float PENETRATION_SLOP = 0.8f;
+const float COLLISION_DAMPENING = 0.8f;
+
 float dot(const sf::Vector2f& a, const sf::Vector2f& b) {
     return a.x*b.x + a.y*b.y;
 }
@@ -35,6 +38,10 @@ void handleCollision(Particle &a, Particle &b) {
     sf::Vector2f normal(dx / dist, dy / dist);
 
     float overlap = r - dist;
+    if (overlap < PENETRATION_SLOP) {
+        return;
+    }
+
     const float percent = 0.8f;
     sf::Vector2f correction = normal * (overlap * 0.5f * percent);
 
@@ -52,10 +59,14 @@ void handleCollision(Particle &a, Particle &b) {
     // If they are separating already, don't bounce 
     if (vaN - vbN < 0.f) return; 
 
+
     sf::Vector2f vaT = va - normal * vaN; 
     sf::Vector2f vbT = vb - normal * vbN;
 
     std::swap(vaN, vbN);
+
+    vaN *= COLLISION_DAMPENING;
+    vbN *= COLLISION_DAMPENING;
 
     a.velocity = vaT + normal * vaN;
     b.velocity = vbT + normal * vbN;
@@ -88,10 +99,12 @@ int main() {
                     particle.update(dt);
                 }
 
-                for (int i = 0; i < particles.size(); ++i) {
-                    for (int j = i + 1; j < particles.size(); ++j) {
-                        if (checkCollision(particles[i], particles[j])) {
-                            handleCollision(particles[i], particles[j]);
+                for (int k = 0; k < 4; ++k) {
+                    for (int i = 0; i < particles.size(); ++i) {
+                        for (int j = i + 1; j < particles.size(); ++j) {
+                            if (checkCollision(particles[i], particles[j])) {
+                                handleCollision(particles[i], particles[j]);
+                            }
                         }
                     }
                 }
