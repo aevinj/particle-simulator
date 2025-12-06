@@ -19,17 +19,17 @@ struct Particle {
     sf::Vector2f velocity;
     sf::CircleShape particle;
 
-    Particle(sf::Vector2f velocity) : velocity(velocity) , particle(radius) {
+    Particle(sf::Vector2f velocity, sf::Vector2f position) : velocity(velocity) , particle(radius) {
         particle.setFillColor(sf::Color::Green);
         particle.setOrigin(radius, radius);
 
-        int spawnWidth  = SCREEN_WIDTH  - 2 * static_cast<int>(radius);
-        int spawnHeight = SCREEN_HEIGHT / 2 - 2 * static_cast<int>(radius);
+        // int spawnWidth  = SCREEN_WIDTH  - 2 * static_cast<int>(radius);
+        // int spawnHeight = SCREEN_HEIGHT / 2 - 2 * static_cast<int>(radius);
 
-        float x = static_cast<float>((rand() % spawnWidth)  + static_cast<int>(radius));
-        float y = static_cast<float>((rand() % spawnHeight) + static_cast<int>(radius));
+        // float x = static_cast<float>((rand() % spawnWidth)  + static_cast<int>(radius));
+        // float y = static_cast<float>((rand() % spawnHeight) + static_cast<int>(radius));
 
-        particle.setPosition(x, y);
+        particle.setPosition(position);
     }
 
     void update(float dt) {

@@ -7,6 +7,8 @@
 
 const float PENETRATION_SLOP = 0.8f;
 const float COLLISION_DAMPENING = 0.8f;
+const float SPAWN_DELAY = 0.005f;
+const int PARTICLE_COUNT = 500;
 
 float dot(const sf::Vector2f& a, const sf::Vector2f& b) {
     return a.x*b.x + a.y*b.y;
@@ -77,13 +79,10 @@ int main() {
         sf::RenderWindow window(sf::VideoMode(800,600), "Particle test");
         window.setFramerateLimit(120);
 
-        sf::Clock clock;
+        sf::Clock clock, spawner;
 
         std::vector<Particle> particles;
-        particles.reserve(500);
-        for (int i = 0; i < 500; ++i) {
-            particles.emplace_back(sf::Vector2f(100.f,0.f));
-        }
+        particles.reserve(PARTICLE_COUNT);
         
         float dt;
         while (window.isOpen()) {
@@ -94,6 +93,11 @@ int main() {
                 dt = clock.restart().asSeconds();
 
                 window.clear(sf::Color::Black);
+
+                if (particles.size() < PARTICLE_COUNT && spawner.getElapsedTime().asSeconds() >= SPAWN_DELAY) {
+                    spawner.restart();
+                    particles.emplace_back(sf::Vector2f(2500.f, 2500.f), sf::Vector2f(50.f, 50.f));
+                }
 
                 for (auto& particle : particles) {
                     particle.update(dt);
