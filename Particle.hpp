@@ -4,8 +4,8 @@
 
 const float DAMPING = 0.999f;
 const sf::Vector2f GRAVITY(0.f, 2000.f);
-const float RESTITUTION = 0.8f; 
-const float FRICTION = 0.9f;
+const float RESTITUTION = 0.8f;     // how bouncy surfaces are
+const float FRICTION = 0.99f; 
 
 struct Particle {
     sf::Vector2f position;
@@ -48,12 +48,49 @@ struct Particle {
     void applyBounds(const int height, const int width) {
         auto velocity = position - prev_position;
         
+        // floor
         if (position.y + radius > height) {
             position.y = height - radius;
 
             if (velocity.y > 0.f) {
                 velocity.y = -velocity.y * RESTITUTION;
                 velocity.x *= FRICTION;
+            }
+
+            prev_position = position - velocity;
+        }
+
+        // ceil
+        if (position.y - radius < 0.f) {
+            position.y = radius;
+
+            if (velocity.y < 0.f) {
+                velocity.y = -velocity.y * RESTITUTION;
+                velocity.x *= FRICTION;
+            }
+
+            prev_position = position - velocity;
+        }
+
+        // left wall
+        if (position.x - radius < 0.f) {
+            position.x = radius;
+
+            if (velocity.x < 0.f) {
+                velocity.x = -velocity.x * RESTITUTION;
+                velocity.y *= FRICTION;
+            }
+
+            prev_position = position - velocity;
+        }
+
+        // right wall
+        if (position.x + radius > width) {
+            position.x = width - radius;
+
+            if (velocity.x > 0.f) {
+                velocity.x = -velocity.x * RESTITUTION;
+                velocity.y *= FRICTION;
             }
 
             prev_position = position - velocity;
