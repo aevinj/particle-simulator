@@ -3,75 +3,7 @@
 #include <cstdlib>  // for rand
 #include <ctime>    // for rand
 #include <cmath>
-
-const int SCREEN_HEIGHT = 600;
-const int SCREEN_WIDTH = 800;
-const float GRAVITY = 800.f;
-const float DAMPENING = 0.8f;
-const float DRAG = 0.97f;
-const float FRICTION = 0.88f;
-
-struct Particle {
-        float radius = 7.f;
-        sf::Vector2f velocity;
-        sf::CircleShape particle;
-
-        Particle(sf::Vector2f velocity) : velocity(velocity) , particle(radius) {
-                particle.setFillColor(sf::Color::Green);
-                particle.setOrigin(radius, radius);
-                float x = static_cast<float>((rand() % SCREEN_WIDTH - radius) + radius);
-                float y = static_cast<float>((rand() % (SCREEN_HEIGHT / 2) - radius) + radius);
-                particle.setPosition(x, y);
-        }
-
-        void updatePos(float dt) {
-            auto [x,y] = particle.getPosition();
-
-            applyGravity(dt);
-
-            x += velocity.x * dt;
-            y += velocity.y * dt;
-
-            bounce(x, y);
-
-            applyDrag();
-
-            if (y + radius >= SCREEN_HEIGHT) {
-                velocity.x *= FRICTION;
-            }
-
-            particle.setPosition(x, y);
-        }
-
-        void bounce(float& x, float& y) {
-            if (y + radius >= SCREEN_HEIGHT) {
-                y = SCREEN_HEIGHT - radius; 
-                velocity.y = -velocity.y * DAMPENING;
-            } else if (y - radius <= 0) {
-                y = 0 + radius;
-                velocity.y = -velocity.y;
-            }
-            
-            if (x + radius >= SCREEN_WIDTH) {
-                x = SCREEN_WIDTH - radius;
-                velocity.x = -velocity.x;
-            } else if (x - radius <= 0) {
-                x = 0 + radius;
-                velocity.x = -velocity.x;
-            }
-        }
-
-        void applyGravity(float dt) {
-            velocity.y += GRAVITY * dt;
-        }
-
-        void applyDrag() {
-            velocity.x *= DRAG;
-            velocity.y *= DRAG;
-        }
-
-        sf::CircleShape& getParticle() {return particle;}
-};
+#include "Particle.hpp"
 
 float dot(const sf::Vector2f& a, const sf::Vector2f& b) {
     return a.x*b.x + a.y*b.y;
@@ -80,8 +12,9 @@ float dot(const sf::Vector2f& a, const sf::Vector2f& b) {
 bool checkCollision(Particle &a, Particle &b) {
     float dx = b.getParticle().getPosition().x - a.getParticle().getPosition().x;
     float dy = b.getParticle().getPosition().y - a.getParticle().getPosition().y;
+    float min_dist = a.radius + b.radius;
     
-    return dx*dx + dy*dy < (a.radius*b.radius*4);
+    return dx*dx + dy*dy < min_dist*min_dist;
 }
 
 void handleCollision(Particle &a, Particle &b) {
@@ -90,21 +23,42 @@ void handleCollision(Particle &a, Particle &b) {
 
     float dx = posB.x - posA.x;
     float dy = posB.y - posA.y;
-    float dist = std::sqrt(dx*dx + dy*dy);
-    
-    if (dist == 0) return; // identical positions -> avoid NaN
+    float squared_dist = dx*dx + dy*dy;
+
+    if (squared_dist == 0.f) return;
+
+    float dist = std::sqrt(squared_dist);
+    float r = a.radius + b.radius;
+
+    if (dist >= r) return;
 
     sf::Vector2f normal(dx / dist, dy / dist);
-    float overlap = (a.radius + b.radius) - dist;
 
-    a.particle.setPosition(posA - normal * (overlap * 0.5f));
-    b.particle.setPosition(posB + normal * (overlap * 0.5f));
-}
+    float overlap = r - dist;
+    const float percent = 0.8f;
+    sf::Vector2f correction = normal * (overlap * 0.5f * percent);
 
-void swapVelocities(Particle &a, Particle &b) {
-    sf::Vector2f temp = a.velocity;
-    a.velocity = b.velocity;
-    b.velocity = temp;
+    posA -= correction;
+    posB += correction;
+
+    a.getParticle().setPosition(posA);
+    b.getParticle().setPosition(posB);
+
+    sf::Vector2f va = a.velocity;
+    sf::Vector2f vb = b.velocity;
+    float vaN = dot(va, normal); // normal component of a 
+    float vbN = dot(vb, normal); // normal component of b 
+
+    // If they are separating already, don't bounce 
+    if (vaN - vbN < 0.f) return; 
+
+    sf::Vector2f vaT = va - normal * vaN; 
+    sf::Vector2f vbT = vb - normal * vbN;
+
+    std::swap(vaN, vbN);
+
+    a.velocity = vaT + normal * vaN;
+    b.velocity = vbT + normal * vbN;
 }
 
 int main() {
@@ -115,8 +69,8 @@ int main() {
         sf::Clock clock;
 
         std::vector<Particle> particles;
-        particles.reserve(300);
-        for (int i = 0; i < 300; ++i) {
+        particles.reserve(500);
+        for (int i = 0; i < 500; ++i) {
             particles.emplace_back(sf::Vector2f(100.f,0.f));
         }
         
@@ -131,30 +85,21 @@ int main() {
                 window.clear(sf::Color::Black);
 
                 for (auto& particle : particles) {
-                    particle.updatePos(dt);
-                    window.draw(particle.getParticle());
+                    particle.update(dt);
                 }
 
                 for (int i = 0; i < particles.size(); ++i) {
                     for (int j = i + 1; j < particles.size(); ++j) {
                         if (checkCollision(particles[i], particles[j])) {
-                            swapVelocities(particles[i], particles[j]);
                             handleCollision(particles[i], particles[j]);
                         }
                     }
                 }
-                
-                // positional relaxations only
-                for (int k = 0; k < 10; ++k) {
-                    for (int i = 0; i < particles.size(); ++i) {
-                        for (int j = i + 1; j < particles.size(); ++j) {
-                            if (checkCollision(particles[i], particles[j])) {
-                                handleCollision(particles[i], particles[j]);
-                            }
-                        }
-                    }
-                }   
 
+                for (auto& particle : particles) {
+                    window.draw(particle.getParticle());
+                }
+                
                 window.display();
         }
         return 0;
