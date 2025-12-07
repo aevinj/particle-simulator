@@ -2,7 +2,7 @@
 
 #include <SFML/Graphics.hpp>
 
-const float DAMPING = 0.99f;
+const float DAMPING = 0.98f;
 const sf::Vector2f GRAVITY(0.f, 2000.f);
 const float RESTITUTION = 0.8f;     // how bouncy surfaces are
 const float FRICTION = 0.99f; 
@@ -13,14 +13,18 @@ struct Particle {
     sf::Vector2f acceleration;
     float radius;
     sf::Color color;
+    sf::CircleShape p;
 
     Particle(sf::Vector2f start_pos, float r) : 
         position(start_pos),
         prev_position(start_pos),
         acceleration(0.f, 0.f),
         radius(r),
-        color(sf::Color::Green)
-        {}
+        color(sf::Color::Green),
+        p(radius) {
+            p.setOrigin(radius, radius);
+            p.setFillColor(color);
+        }
 
     void integrate(float dt) {
         //  p_new = p + (p - p_prev) * damping + a * dt²
@@ -37,10 +41,7 @@ struct Particle {
         acceleration += GRAVITY;
     }
 
-    sf::CircleShape getParticle() {
-        sf::CircleShape p(radius);
-        p.setFillColor(color);
-        p.setOrigin(radius, radius);
+    sf::CircleShape& getParticle() {
         p.setPosition(position);
         return p;
     }

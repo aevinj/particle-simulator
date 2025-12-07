@@ -4,11 +4,11 @@
 #include <cmath>
 #include <iostream>
 
-const int SCREEN_HEIGHT = 600;
+const int SCREEN_HEIGHT = 800;
 const int SCREEN_WIDTH = 800;
-const float SPAWN_DELAY = 0.005f;
-const int PARTICLE_COUNT = 1000;
-const size_t CELL_SIZE = 16;
+const float SPAWN_DELAY = 0.0005f;
+const int PARTICLE_COUNT = 5000;
+const size_t CELL_SIZE = 8;
 constexpr int GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
 constexpr int GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
 const int ITERATIONS = 4;
@@ -33,7 +33,7 @@ void resolveCollision(Particle &a, Particle &b) {
     sf::Vector2f normal = v / dist;
     float overlap = min_dist - dist;
 
-    const float stiffness = 0.8f;
+    const float stiffness = 0.85f;
     float correction = overlap * 0.5f * stiffness;
 
     a.position += normal * correction;
@@ -42,15 +42,15 @@ void resolveCollision(Particle &a, Particle &b) {
 
 void updateStartingVel(sf::Vector2f &sv, bool &goingUp) {
     if (goingUp) {
-        if (sv.x + 15.f < 500.f) {
-            sv.x += 15.f;
+        if (sv.x + 25.f < 500.f) {
+            sv.x += 25.f;
         } else {
             sv.x = 500.f;
             goingUp = false;
         }
     } else {
-        if (sv.x - 15.f > -500.f) {
-            sv.x -= 15.f;
+        if (sv.x - 25.f > -500.f) {
+            sv.x -= 25.f;
         } else {
             sv.x = -500.f;
             goingUp = true;
@@ -78,7 +78,7 @@ int main() {
         // dt = clock.restart().asSeconds();
 
         if (particles.size() < PARTICLE_COUNT && spawner.getElapsedTime().asSeconds() >= SPAWN_DELAY) {
-            particles.emplace_back(sf::Vector2f(static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f), 5.f);
+            particles.emplace_back(sf::Vector2f(static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f), 3.f);
             auto& latest = particles.back();
             latest.prev_position = latest.position - starting_vel * dt;
             updateStartingVel(starting_vel, goingUp);
@@ -154,8 +154,7 @@ int main() {
         }
 
         for (auto& particle : particles) {
-            auto p = particle.getParticle();
-            window.draw(p);
+            window.draw(particle.getParticle());
         }    
 
         window.display();
