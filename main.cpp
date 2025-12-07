@@ -9,15 +9,15 @@ const int SCREEN_WIDTH = 800;
 const float SPAWN_DELAY = 0.005f;
 const int PARTICLE_COUNT = 1000;
 const size_t CELL_SIZE = 16;
-constexpr size_t GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
-constexpr size_t GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
+constexpr int GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
+constexpr int GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
 const int ITERATIONS = 4;
 std::vector<int> grid[GRID_ROWS][GRID_COLS];
 const std::pair<int, int> ds[4] = {
     {1,0},
     {0,1},
     {1,1},
-    {-1,1}
+    {1,-1} 
 };
 
 void resolveCollision(Particle &a, Particle &b) {
@@ -82,6 +82,7 @@ int main() {
             auto& latest = particles.back();
             latest.prev_position = latest.position - starting_vel * dt;
             updateStartingVel(starting_vel, goingUp);
+            spawner.restart();
         }
 
         window.clear(sf::Color::White);
