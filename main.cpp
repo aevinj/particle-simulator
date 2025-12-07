@@ -40,6 +40,24 @@ void resolveCollision(Particle &a, Particle &b) {
     b.position -= normal * correction;
 }
 
+void updateStartingVel(sf::Vector2f &sv, bool &goingUp) {
+    if (goingUp) {
+        if (sv.x + 15.f < 500.f) {
+            sv.x += 15.f;
+        } else {
+            sv.x = 500.f;
+            goingUp = false;
+        }
+    } else {
+        if (sv.x - 15.f > -500.f) {
+            sv.x -= 15.f;
+        } else {
+            sv.x = -500.f;
+            goingUp = true;
+        }
+    }
+}
+
 int main() {
     sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Simulator");
     window.setFramerateLimit(60);
@@ -47,7 +65,8 @@ int main() {
     sf::Clock clock, spawner;
     float dt = 1.f / 60.f;
     std::vector<Particle> particles;
-    const sf::Vector2f starting_vel(500.f, 500.f);
+    sf::Vector2f starting_vel(0.f, 500.f);
+    bool goingUp = false;
 
     while (window.isOpen()) {
         sf::Event event;
@@ -59,9 +78,10 @@ int main() {
         // dt = clock.restart().asSeconds();
 
         if (particles.size() < PARTICLE_COUNT && spawner.getElapsedTime().asSeconds() >= SPAWN_DELAY) {
-            particles.emplace_back(sf::Vector2f(10.f,10.f), 5.f);
+            particles.emplace_back(sf::Vector2f(static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f), 5.f);
             auto& latest = particles.back();
             latest.prev_position = latest.position - starting_vel * dt;
+            updateStartingVel(starting_vel, goingUp);
         }
 
         window.clear(sf::Color::White);
