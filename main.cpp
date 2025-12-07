@@ -8,6 +8,17 @@ const int SCREEN_HEIGHT = 600;
 const int SCREEN_WIDTH = 800;
 const float SPAWN_DELAY = 0.005f;
 const int PARTICLE_COUNT = 1000;
+const size_t CELL_SIZE = 16;
+constexpr size_t GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
+constexpr size_t GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
+const int ITERATIONS = 4;
+std::vector<int> grid[GRID_ROWS][GRID_COLS];
+const std::pair<int, int> ds[4] = {
+    {1,0},
+    {0,1},
+    {1,1},
+    {-1,1}
+};
 
 void resolveCollision(Particle &a, Particle &b) {
     sf::Vector2f v = a.position - b.position;
@@ -62,11 +73,60 @@ int main() {
                 particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
             }
 
-            const int iterations = 4;
-            for (int k = 0; k < iterations; ++k) {
-                for (int i = 0; i < particles.size(); ++i) {
-                    for (int j = i + 1; j < particles.size(); ++j) {
-                        resolveCollision(particles[i], particles[j]);
+            for (int row = 0; row < GRID_ROWS; ++row) {
+                for (int col = 0; col < GRID_COLS; ++col) {
+                    grid[row][col].clear();
+                }
+            }
+
+            for (int i = 0; i < particles.size(); ++i) {
+                const auto& p = particles[i];
+                int cx = static_cast<int>(p.position.x / CELL_SIZE);
+                int cy = static_cast<int>(p.position.y / CELL_SIZE);
+
+                // clamp
+                if (cx < 0) cx = 0;
+                if (cy < 0) cy = 0;
+                if (cx >= GRID_COLS) cx = GRID_COLS - 1;
+                if (cy >= GRID_ROWS) cy = GRID_ROWS - 1;
+
+                grid[cy][cx].push_back(i); // store index of this particle
+            }
+
+            for (int k = 0; k < ITERATIONS; ++k) {
+                for (int row = 0; row < GRID_ROWS; ++row) {
+                    for (int col = 0; col < GRID_COLS; ++col) {
+                        auto& cell = grid[row][col];
+                        if (cell.empty()) {
+                            continue;
+                        }
+                        
+                        for (int a = 0; a < cell.size(); ++a) {
+                            for (int b = a + 1; b < cell.size(); ++b) {
+                                resolveCollision(particles[cell[a]], particles[cell[b]]);
+                            }
+                        }
+
+                        for (auto& [dr, dc] : ds) {
+                            int nr = dr + row;
+                            int nc = dc + col;
+
+                            if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) {
+                                continue;
+                            }
+
+                            auto& neighbour = grid[nr][nc];
+
+                            if (neighbour.empty()) {
+                                continue;
+                            }
+
+                            for (int a : cell) {
+                                for (int b : neighbour) {
+                                    resolveCollision(particles[a], particles[b]);
+                                }
+                            }
+                        }
                     }
                 }
             }
