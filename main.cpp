@@ -68,8 +68,14 @@ int main() {
     sf::Vector2f starting_vel(0.f, 500.f);
     bool goingUp = false;
 
+    float mouseForceStrength = 200000.f;
+    float mouseRadius = 150.f;
+
     while (window.isOpen()) {
         sf::Event event;
+        bool mouseHeld = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+        sf::Vector2f mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(window));
+
         while (window.pollEvent(event)) {
             if (event.type == sf::Event::Closed || sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
                 window.close();
@@ -89,6 +95,18 @@ int main() {
 
         for (int s = 0; s < 4; ++s) {
             for (auto& particle : particles) {
+                if (mouseHeld) {
+                    sf::Vector2f dir = mousePos - particle.position;
+                    float distSq = dir.x*dir.x + dir.y*dir.y;
+
+                    if (distSq < mouseRadius * mouseRadius) {        // within range
+                        float dist = std::sqrt(distSq);
+                        if (dist > 5.f) {                            // avoid divide by zero
+                            sf::Vector2f normalized = dir / dist;
+                            particle.acceleration += normalized * (mouseForceStrength / distSq);
+                        }
+                    }
+                }
                 particle.applyGravity();
                 particle.integrate(static_cast<float>(dt / 4.f));
                 particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
