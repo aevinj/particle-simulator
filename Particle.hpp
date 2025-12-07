@@ -2,7 +2,7 @@
 
 #include <SFML/Graphics.hpp>
 
-const float DAMPING = 0.999f;
+const float DAMPING = 0.99f;
 const sf::Vector2f GRAVITY(0.f, 2000.f);
 const float RESTITUTION = 0.8f;     // how bouncy surfaces are
 const float FRICTION = 0.99f; 

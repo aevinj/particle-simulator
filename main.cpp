@@ -1,12 +1,13 @@
 #include <SFML/Graphics.hpp>
-#include "particle.hpp"
+#include "Particle.hpp"
 #include <vector>
 #include <cmath>
+#include <iostream>
 
 const int SCREEN_HEIGHT = 600;
 const int SCREEN_WIDTH = 800;
 const float SPAWN_DELAY = 0.005f;
-const int PARTICLE_COUNT = 200;
+const int PARTICLE_COUNT = 1000;
 
 void resolveCollision(Particle &a, Particle &b) {
     sf::Vector2f v = a.position - b.position;
@@ -33,9 +34,9 @@ int main() {
     window.setFramerateLimit(60);
 
     sf::Clock clock, spawner;
-    float dt;
+    float dt = 1.f / 60.f;
     std::vector<Particle> particles;
-    const sf::Vector2f starting_vel(1000.f, 1000.f);
+    const sf::Vector2f starting_vel(500.f, 500.f);
 
     while (window.isOpen()) {
         sf::Event event;
@@ -44,27 +45,29 @@ int main() {
                 window.close();
             }
         }
-        dt = clock.restart().asSeconds();
+        // dt = clock.restart().asSeconds();
 
         if (particles.size() < PARTICLE_COUNT && spawner.getElapsedTime().asSeconds() >= SPAWN_DELAY) {
-            particles.emplace_back(sf::Vector2f(100.f,100.f), 5.f);
+            particles.emplace_back(sf::Vector2f(10.f,10.f), 5.f);
             auto& latest = particles.back();
             latest.prev_position = latest.position - starting_vel * dt;
         }
 
         window.clear(sf::Color::White);
 
-        for (auto& particle : particles) {
-            particle.applyGravity();
-            particle.integrate(dt);
-            particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
-        }
+        for (int s = 0; s < 4; ++s) {
+            for (auto& particle : particles) {
+                particle.applyGravity();
+                particle.integrate(static_cast<float>(dt / 4.f));
+                particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+            }
 
-        const int iterations = 4;
-        for (int k = 0; k < iterations; ++k) {
-            for (int i = 0; i < particles.size(); ++i) {
-                for (int j = i + 1; j < particles.size(); ++j) {
-                    resolveCollision(particles[i], particles[j]);
+            const int iterations = 4;
+            for (int k = 0; k < iterations; ++k) {
+                for (int i = 0; i < particles.size(); ++i) {
+                    for (int j = i + 1; j < particles.size(); ++j) {
+                        resolveCollision(particles[i], particles[j]);
+                    }
                 }
             }
         }
