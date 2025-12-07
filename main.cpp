@@ -8,7 +8,7 @@
 const float PENETRATION_SLOP = 0.8f;
 const float COLLISION_DAMPENING = 0.8f;
 const float SPAWN_DELAY = 0.005f;
-const int PARTICLE_COUNT = 500;
+const int PARTICLE_COUNT = 1000;
 
 float dot(const sf::Vector2f& a, const sf::Vector2f& b) {
     return a.x*b.x + a.y*b.y;
@@ -90,7 +90,7 @@ int main() {
                 while (window.pollEvent(event)) {
                         if (event.type == sf::Event::Closed) window.close();
                 }
-                dt = clock.restart().asSeconds();
+                dt = 1.f / 60.f;
 
                 window.clear(sf::Color::Black);
 
