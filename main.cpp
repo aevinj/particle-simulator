@@ -3,6 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <iostream>
+#include <string>
 
 const int SCREEN_HEIGHT = 800;
 const int SCREEN_WIDTH = 800;
@@ -69,7 +70,20 @@ int main() {
     std::vector<Particle> particles;
     sf::Vector2f starting_vel(0.f, 500.f);
     bool goingUp = false;
-
+    bool mouseHeld = false;
+    sf::Vector2f mousePos(0.f, 0.f);
+    bool downPressed = false;
+    bool leftPressed = false;
+    bool rightPressed = false;
+    bool upPressed = false;
+    Particle::GRAVITY = {0.f, 2000.f};
+    sf::Font font;
+    font.loadFromFile("../assets/arial.ttf");
+    sf::Text text;
+    text.setFont(font);
+    text.setString("0");
+    text.setCharacterSize(24);
+    text.setFillColor(sf::Color::Black);
 
     while (window.isOpen()) {
         sf::Event event;
@@ -89,10 +103,26 @@ int main() {
             spawner.restart();
         }
 
+        text.setString(std::to_string(particles.size()));
+
         window.clear(sf::Color::White);
 
-        bool mouseHeld = sf::Mouse::isButtonPressed(sf::Mouse::Left);
-        sf::Vector2f mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(window));
+        mouseHeld = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+        mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(window));
+        downPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Down); 
+        leftPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Left); 
+        rightPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Right); 
+        upPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Up); 
+
+        if (leftPressed) {
+            Particle::GRAVITY = {-2000.f, 0.f};
+        } else if (downPressed) {
+            Particle::GRAVITY = {0.f, 2000.f};
+        } else if (rightPressed) {
+            Particle::GRAVITY =  {2000.f, 0.f};
+        } else if (upPressed) {
+            Particle::GRAVITY = {0.f, -2000.f};
+        }
 
         for (int s = 0; s < 4; ++s) {
             for (auto& particle : particles) {
@@ -110,6 +140,8 @@ int main() {
                         }
                     }
                 }
+
+                
                 particle.applyGravity();
                 particle.integrate(static_cast<float>(dt / 4.f));
                 particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
@@ -178,6 +210,7 @@ int main() {
             window.draw(particle.getParticle());
         }    
 
+        window.draw(text);
         window.display();
     }
 }
