@@ -135,18 +135,27 @@ int main() {
 
         for (int s = 0; s < 4; ++s) {
             for (auto& particle : particles) {
-
                 if (mouseHeld) {
-                    sf::Vector2f dir = mousePos - particle.position;
-                    float distSq = dir.x * dir.x + dir.y * dir.y;
+                    // calc mouse cell
+                    // check if curr pos coincides - only then continue
 
-                    if (distSq < mouseRadius * mouseRadius) {
-                        float dist = std::sqrt(distSq);
-                        if (dist > 1.f) { 
-                            sf::Vector2f normalized = dir / dist;
+                    int cx = static_cast<int>(mousePos.x / CELL_SIZE);
+                    int cy = static_cast<int>(mousePos.y / CELL_SIZE);
 
-                            particle.acceleration += normalized * MOUSE_STRENGTH;
-                        }
+                    int pcx = static_cast<int>(particle.position.x / CELL_SIZE);
+                    int pcy = static_cast<int>(particle.position.y / CELL_SIZE);
+
+                    if (pcx <= cx + (mouseRadius / CELL_SIZE) &&
+                        pcx >= cx - (mouseRadius / CELL_SIZE) &&
+                        pcy <= cy + (mouseRadius / CELL_SIZE) &&
+                        pcy >= cy - (mouseRadius / CELL_SIZE)) {
+
+
+                        sf::Vector2f dir = mousePos - particle.position;
+                        float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                        sf::Vector2f normalized = dir / dist;
+
+                        particle.acceleration += normalized * MOUSE_STRENGTH;
                     }
                 }
                 
