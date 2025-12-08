@@ -79,11 +79,20 @@ int main() {
     Particle::GRAVITY = {0.f, 2000.f};
     sf::Font font;
     font.loadFromFile("../assets/arial.ttf");
-    sf::Text text;
-    text.setFont(font);
-    text.setString("0");
-    text.setCharacterSize(24);
-    text.setFillColor(sf::Color::Black);
+    sf::Text particleCountText, timeBetweenFramesText;
+
+    particleCountText.setFont(font);
+    particleCountText.setString("--");
+    particleCountText.setCharacterSize(24);
+    particleCountText.setFillColor(sf::Color::Black);
+
+    timeBetweenFramesText.setFont(font);
+    timeBetweenFramesText.setString("--");
+    timeBetweenFramesText.setCharacterSize(24);
+    timeBetweenFramesText.setFillColor(sf::Color::Black);
+    timeBetweenFramesText.setPosition(0.f, 30.f);
+
+    particles.reserve(PARTICLE_COUNT);
 
     while (window.isOpen()) {
         sf::Event event;
@@ -93,7 +102,6 @@ int main() {
                 window.close();
             }
         }
-        // dt = clock.restart().asSeconds();
 
         if (particles.size() < PARTICLE_COUNT && spawner.getElapsedTime().asSeconds() >= SPAWN_DELAY) {
             particles.emplace_back(sf::Vector2f(static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f), 3.f);
@@ -103,7 +111,8 @@ int main() {
             spawner.restart();
         }
 
-        text.setString(std::to_string(particles.size()));
+        particleCountText.setString(std::to_string(particles.size()));
+        timeBetweenFramesText.setString(std::to_string(clock.restart().asMilliseconds()) + "ms");
 
         window.clear(sf::Color::White);
 
@@ -140,7 +149,6 @@ int main() {
                         }
                     }
                 }
-
                 
                 particle.applyGravity();
                 particle.integrate(static_cast<float>(dt / 4.f));
@@ -210,7 +218,8 @@ int main() {
             window.draw(particle.getParticle());
         }    
 
-        window.draw(text);
+        window.draw(particleCountText);
+        window.draw(timeBetweenFramesText);
         window.display();
     }
 }
