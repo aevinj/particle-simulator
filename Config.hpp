@@ -1,20 +1,38 @@
 #pragma once
 
-#include <cstddef>
+#include "Particle.hpp"
 
-// Screen / world settings
-inline constexpr int   SCREEN_WIDTH    = 800;
-inline constexpr int   SCREEN_HEIGHT   = 800;
+inline const int SCREEN_WIDTH = 800;
+inline const int SCREEN_HEIGHT = 800;
 
-// Simulation settings
-inline constexpr float SPAWN_DELAY     = 0.0005f;
-inline constexpr int   PARTICLE_COUNT  = 5000;
-inline constexpr std::size_t CELL_SIZE = 8;
-inline constexpr int   GRID_COLS       = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
-inline constexpr int   GRID_ROWS       = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
-inline constexpr int   ITERATIONS      = 4;
+struct InputState {
+    bool mouseHeld = false;
+    sf::Vector2f mousePos;
 
-// Mouse interaction
-inline constexpr float MOUSE_STRENGTH  = 5000.f;
-inline constexpr float MOUSE_RADIUS    = 200.f;
+    bool downPressed = false;    
+    bool upPressed = false;
+    bool leftPressed = false;
+    bool rightPressed = false;
 
+    void update(sf::RenderWindow &window) {
+        mouseHeld = sf::Mouse::isButtonPressed(sf::Mouse::Left);
+        mousePos = static_cast<sf::Vector2f>(sf::Mouse::getPosition(window));
+        downPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Down);
+        leftPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Left);
+        rightPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Right);
+        upPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Up);
+        updateGravityIfNeeded();
+    }
+
+    void updateGravityIfNeeded() {
+        if (leftPressed) {
+            Particle::GRAVITY = {-2000.f, 0.f};
+        } else if (downPressed) {
+            Particle::GRAVITY = {0.f, 2000.f};
+        } else if (rightPressed) {
+            Particle::GRAVITY =  {2000.f, 0.f};
+        } else if (upPressed) {
+            Particle::GRAVITY = {0.f, -2000.f};
+        }
+    }
+};

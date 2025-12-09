@@ -1,71 +1,77 @@
 #include <SFML/Graphics.hpp>
 #include <string>
-#include <iostream>
 
 #include "Config.hpp"
 #include "World.hpp"
+#include "Particle.hpp"
+
+class VisualText {
+    private:
+        sf::Font font;
+        sf::Text particleCount, timeBetweenFrames;
+
+    public:
+        VisualText() {
+            font.loadFromFile("../assets/arial.ttf");
+
+            particleCount.setFont(font);
+            particleCount.setString("--");
+            particleCount.setCharacterSize(24);
+            particleCount.setFillColor(sf::Color::Black);
+
+            timeBetweenFrames.setFont(font);
+            timeBetweenFrames.setString("--");
+            timeBetweenFrames.setCharacterSize(24);
+            timeBetweenFrames.setFillColor(sf::Color::Black);
+            timeBetweenFrames.setPosition(0.f, 30.f);
+        }
+
+        void draw(sf::RenderWindow &window) const {
+            window.draw(particleCount);
+            window.draw(timeBetweenFrames);
+        }
+
+        void setParticle(std::string cnt) {
+            particleCount.setString(cnt);
+        }
+
+        void setFrames(std::string cnt) {
+            timeBetweenFrames.setString(cnt + "ms");
+        }
+};
 
 int main() {
-    sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Simulator");
+    sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Sim");
     window.setFramerateLimit(60);
 
-    World world;
+    sf::Clock clock, spawner;
 
-    sf::Clock frameClock;
+    VisualText visualText;
+    InputState inpState;
 
-    sf::Font font;
-    if (!font.loadFromFile("../assets/arial.ttf")) {
-        std::cerr << "Error loading font - ensure it is available." << std::endl;
-        throw 1;
-    }
-
-    sf::Text particleCountText;
-    particleCountText.setFont(font);
-    particleCountText.setCharacterSize(24);
-    particleCountText.setFillColor(sf::Color::Black);
-
-    sf::Text timeBetweenFramesText;
-    timeBetweenFramesText.setFont(font);
-    timeBetweenFramesText.setCharacterSize(24);
-    timeBetweenFramesText.setFillColor(sf::Color::Black);
-    timeBetweenFramesText.setPosition(0.f, 30.f);
-
-    const float fixedDt = 1.f / 60.f;
-    InputState input;
+    World world(5000, 4, 4);
 
     while (window.isOpen()) {
         sf::Event event;
         while (window.pollEvent(event)) {
-            if (event.type == sf::Event::Closed ||
-                sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
+            if (event.type == sf::Event::Closed || sf::Keyboard::isKeyPressed(sf::Keyboard::Escape)) {
                 window.close();
             }
         }
 
-        input.mouseHeld    = sf::Mouse::isButtonPressed(sf::Mouse::Left);
-        input.mousePos     = static_cast<sf::Vector2f>(sf::Mouse::getPosition(window));
-        input.downPressed  = sf::Keyboard::isKeyPressed(sf::Keyboard::Down);
-        input.leftPressed  = sf::Keyboard::isKeyPressed(sf::Keyboard::Left);
-        input.rightPressed = sf::Keyboard::isKeyPressed(sf::Keyboard::Right);
-        input.upPressed    = sf::Keyboard::isKeyPressed(sf::Keyboard::Up);
-
-        world.spawnIfNeeded(fixedDt);
-        world.update(fixedDt, input);
-
-        particleCountText.setString(std::to_string(world.particleCount()));
-        timeBetweenFramesText.setString(std::to_string(frameClock.restart().asMilliseconds()) + "ms");
+        world.spawnIfPossible(spawner.restart().asSeconds(), spawner);
+        visualText.setParticle(std::to_string(world.particles.size()));
+        visualText.setFrames(std::to_string(clock.restart().asMilliseconds()));
 
         window.clear(sf::Color::White);
 
-        for (auto& particle : world.particles()) {
-            window.draw(particle.getParticle());
-        }
+        inpState.update(window);
 
-        window.draw(particleCountText);
-        window.draw(timeBetweenFramesText);
+        world.update(inpState);
+
+        world.draw(window);
+
+        visualText.draw(window);
         window.display();
     }
-
-    return 0;
 }
-

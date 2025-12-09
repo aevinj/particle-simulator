@@ -7,13 +7,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(SFML 2.5 COMPONENTS system window graphics REQUIRED)
 
+# add_executable(particle-simulator
+#     main.cpp
+#     World.cpp
+#     World.hpp
+#     Particle.hpp
+#     Config.hpp
+# )
+
+
 add_executable(particle-simulator
     main.cpp
-    World.cpp
-    World.hpp
-    Particle.hpp
     Config.hpp
+    Particle.hpp
+    World.hpp
 )
+
 
 target_link_libraries(particle-simulator
     sfml-system

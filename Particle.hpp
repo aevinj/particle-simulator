@@ -13,7 +13,7 @@ struct Particle {
     float radius;
     sf::Color color;
     sf::CircleShape shape;
-    inline static sf::Vector2f GRAVITY;  // defined elsewhere via assignment
+    inline static sf::Vector2f GRAVITY = {0.f, 2000.f}; 
 
     Particle(sf::Vector2f start_pos, float r)
         : position(start_pos)

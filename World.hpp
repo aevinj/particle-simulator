@@ -1,47 +1,183 @@
 #pragma once
 
-#include <vector>
 #include <SFML/Graphics.hpp>
+#include <vector>
+#include <cmath>
 
 #include "Config.hpp"
 #include "Particle.hpp"
 
-struct InputState {
-    bool        mouseHeld    = false;
-    sf::Vector2f mousePos    {0.f, 0.f};
-    bool        downPressed  = false;
-    bool        leftPressed  = false;
-    bool        rightPressed = false;
-    bool        upPressed    = false;
-};
-
 class World {
-public:
-    World();
+    private:
+        const int PARTICLE_COUNT;
+        const int SUBSTEPS;
+        const int ITERATIONS;
+        static const int CELL_SIZE = 8;
+        const float MOUSE_RADIUS = 200.f;
+        const float MOUSE_STRENGTH = 5000.f;
+        const float SPAWN_DELAY = 0.0005f; 
+        const sf::Vector2f startPos = {static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f};
+        sf::Vector2f startingVel = {0.f, 500.f}; 
+        bool goingUp = true;
+        const float dt = 1.f / 60.f;
+        static constexpr int GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
+        static constexpr int GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
+        std::vector<int> grid[GRID_ROWS][GRID_COLS];
+        const std::pair<int, int> ds[4] = {
+            {1,0},
+            {0,1},
+            {1,1},
+            {1,-1}
+        };
 
-    std::vector<Particle>& particles() { return particles_; }
-    std::size_t particleCount() const { return particles_.size(); }
+        void resolveCollision(Particle &a, Particle &b) {
+            sf::Vector2f v = a.position - b.position;
+            float square_dist = v.x*v.x + v.y*v.y;
+            float min_dist = a.radius + b.radius;
 
-    // dt is in seconds (e.g. 1/60.f)
-    void spawnIfNeeded(float dt);
-    void update(float dt, const InputState& input);
+            if (square_dist == 0.f || square_dist >= min_dist * min_dist) {
+                return;
+            }
 
-private:
-    std::vector<Particle> particles_;
-    std::vector<int> grid_[GRID_ROWS][GRID_COLS];
+            float dist = std::sqrt(square_dist);
+            sf::Vector2f normal = v / dist;
+            float overlap = min_dist - dist;
 
-    sf::Vector2f startingVel_;
-    bool         goingUp_;
-    sf::Clock    spawnClock_;
+            const float stiffness = 0.85f;
+            float correction = overlap * 0.5f * stiffness;
 
-    // helpers
-    void resolveCollision(Particle& a, Particle& b);
-    void updateStartingVel();
-    void applyInputGravity(const InputState& input);
-    void applyMouseForce(Particle& particle, const InputState& input,
-                         int mouseCellX, int mouseCellY, int mouseCellRadius);
-    void applyForcesAndIntegrate(float subDt, const InputState& input);
-    void rebuildGrid();
-    void resolveCollisions();
+            a.position += normal * correction;
+            b.position -= normal * correction;
+        } 
+
+        void updateStartingVel() {
+            if (goingUp) {
+                if (startingVel.x + 25.f < 500.f) {
+                    startingVel.x += 25.f;
+                } else {
+                    startingVel.x = 500.f;
+                    goingUp = false;
+                }
+            } else {
+                if (startingVel.x - 25.f > -500.f) {
+                    startingVel.x -= 25.f;
+                } else {
+                    startingVel.x = -500.f;
+                    goingUp = true;
+                }
+            }
+        }
+
+    public:
+        std::vector<Particle> particles;
+
+        World(const int count, const int substeps, const int iterations) : PARTICLE_COUNT(count), SUBSTEPS(substeps), ITERATIONS(iterations) {
+            particles.reserve(count);
+        }
+
+        void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
+            if (elapsed_time >= SPAWN_DELAY && particles.size() < PARTICLE_COUNT) {
+                particles.emplace_back(startPos, 3.f); 
+                auto& latest = particles.back();
+                latest.prev_position = latest.position - startingVel * dt;
+
+                updateStartingVel();
+                spawner.restart();
+            }
+        }
+
+        void update(InputState &inpState) {
+            for (int s = 0; s < SUBSTEPS; ++s) {
+                for (auto &particle : particles) {
+                    if (inpState.mouseHeld) {
+                        int cx = static_cast<int>(inpState.mousePos.x / CELL_SIZE);
+                        int cy = static_cast<int>(inpState.mousePos.y / CELL_SIZE);
+
+                        int pcx = static_cast<int>(particle.position.x / CELL_SIZE);
+                        int pcy = static_cast<int>(particle.position.y / CELL_SIZE);
+
+                        if (pcx <= cx + (MOUSE_RADIUS / CELL_SIZE) &&
+                            pcx >= cx - (MOUSE_RADIUS / CELL_SIZE) &&
+                            pcy <= cy + (MOUSE_RADIUS / CELL_SIZE) &&
+                            pcy >= cy - (MOUSE_RADIUS / CELL_SIZE)) {
+
+
+                            sf::Vector2f dir = inpState.mousePos - particle.position;
+                            float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                            sf::Vector2f normalized = dir / dist;
+
+                            particle.acceleration += normalized * MOUSE_STRENGTH;
+                        }
+                    }
+
+                    particle.applyGravity();
+                    particle.integrate(static_cast<float>(dt / static_cast<float>(SUBSTEPS)));
+                    particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+                }
+
+                for (int row = 0; row < GRID_ROWS; ++row) {
+                    for (int col = 0; col < GRID_COLS; ++col) {
+                        grid[row][col].clear();
+                    }
+                }
+                
+                for (int i = 0; i < particles.size(); ++i) {
+                    const auto &p = particles[i];
+                    int cx = static_cast<int>(p.position.x / CELL_SIZE);
+                    int cy = static_cast<int>(p.position.y / CELL_SIZE);
+
+                    // clamp
+                    if (cx < 0) cx = 0;
+                    if (cy < 0) cy = 0;
+                    if (cx >= GRID_COLS) cx = GRID_COLS - 1;
+                    if (cy >= GRID_ROWS) cy = GRID_ROWS - 1;
+
+                    grid[cy][cx].push_back(i); // store index of this particle
+                }
+
+                for (int k = 0; k < ITERATIONS; ++k) {
+                    for (int row = 0; row < GRID_ROWS; ++row) {
+                        for (int col = 0; col < GRID_COLS; ++col) {
+                            auto &cell = grid[row][col];
+                            if (cell.empty()) {
+                                continue;
+                            }
+                            
+                            for (int a = 0; a < cell.size(); ++a) {
+                                for (int b = a + 1; b < cell.size(); ++b) {
+                                    resolveCollision(particles[cell[a]], particles[cell[b]]);
+                                }
+                            }
+
+                            for (auto& [dr, dc] : ds) {
+                                int nr = dr + row;
+                                int nc = dc + col;
+
+                                if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) {
+                                    continue;
+                                }
+
+                                auto &neighbour = grid[nr][nc];
+
+                                if (neighbour.empty()) {
+                                    continue;
+                                }
+
+                                for (int a : cell) {
+                                    for (int b : neighbour) {
+                                        resolveCollision(particles[a], particles[b]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        void draw(sf::RenderWindow &window) {
+            for (auto &particle : particles) {
+                window.draw(particle.getParticle());
+            }
+        }
 };
-
