@@ -41,6 +41,7 @@ class VisualText {
 };
 
 int main() {
+    srand(1);
     sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Sim");
     window.setFramerateLimit(60);
 
@@ -49,7 +50,8 @@ int main() {
     VisualText visualText;
     InputState inpState;
 
-    World world(5000, 4, 4);
+    // Particle count, substeps, iterations
+    World world(5000, 6, 1);
 
     while (window.isOpen()) {
         sf::Event event;

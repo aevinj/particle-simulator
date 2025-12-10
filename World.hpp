@@ -6,6 +6,7 @@
 
 #include "Config.hpp"
 #include "Particle.hpp"
+#include "ParticleRenderer.hpp"
 
 class World {
     private:
@@ -15,7 +16,7 @@ class World {
         static const int CELL_SIZE = 8;
         const float MOUSE_RADIUS = 200.f;
         const float MOUSE_STRENGTH = 5000.f;
-        const float SPAWN_DELAY = 0.0005f; 
+        const float SPAWN_DELAY = 0.00005f; 
         const sf::Vector2f startPos = {static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f};
         sf::Vector2f startingVel = {0.f, 500.f}; 
         bool goingUp = true;
@@ -29,6 +30,7 @@ class World {
             {1,1},
             {1,-1}
         };
+        ParticleRenderer renderer = ParticleRenderer(PARTICLE_COUNT);
 
         void resolveCollision(Particle &a, Particle &b) {
             sf::Vector2f v = a.position - b.position;
@@ -77,7 +79,7 @@ class World {
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
             if (elapsed_time >= SPAWN_DELAY && particles.size() < PARTICLE_COUNT) {
-                particles.emplace_back(startPos, 3.f); 
+                particles.emplace_back(startPos, 3.f, sf::Color(rand() % 255, rand() % 255, rand() % 255));
                 auto& latest = particles.back();
                 latest.prev_position = latest.position - startingVel * dt;
 
@@ -87,6 +89,7 @@ class World {
         }
 
         void update(InputState &inpState) {
+            float substep_dt = dt / static_cast<float>(SUBSTEPS);
             for (int s = 0; s < SUBSTEPS; ++s) {
                 for (auto &particle : particles) {
                     if (inpState.mouseHeld) {
@@ -111,7 +114,7 @@ class World {
                     }
 
                     particle.applyGravity();
-                    particle.integrate(static_cast<float>(dt / static_cast<float>(SUBSTEPS)));
+                    particle.integrate(substep_dt); 
                     particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
                 }
 
@@ -176,8 +179,7 @@ class World {
         }
 
         void draw(sf::RenderWindow &window) {
-            for (auto &particle : particles) {
-                window.draw(particle.getParticle());
-            }
+            renderer.build(particles);
+            renderer.draw(window);
         }
 };
