@@ -12,20 +12,15 @@ struct Particle {
     sf::Vector2f acceleration;
     float radius;
     sf::Color color;
-    sf::CircleShape shape;
     inline static sf::Vector2f GRAVITY = {0.f, 2000.f}; 
 
-    Particle(sf::Vector2f start_pos, float r)
+    Particle(sf::Vector2f start_pos, float r, sf::Color color)
         : position(start_pos)
         , prev_position(start_pos)
         , acceleration(0.f, 0.f)
         , radius(r)
-        , color(sf::Color::Green)
-        , shape(radius)
-    {
-        shape.setOrigin(radius, radius);
-        shape.setFillColor(color);
-    }
+        , color(color)
+    {}
 
     void integrate(float dt) {
         // Verlet: p_new = p + (p - p_prev) * damping + a * dt^2
@@ -40,11 +35,6 @@ struct Particle {
 
     void applyGravity() {
         acceleration += GRAVITY;
-    }
-
-    sf::CircleShape& getParticle() {
-        shape.setPosition(position);
-        return shape;
     }
 
     void applyBounds(int height, int width) {
