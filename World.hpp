@@ -94,7 +94,7 @@ class World {
 
         World(const int count, const int substeps) : PARTICLE_COUNT(count), SUBSTEPS(substeps){
             particles.reserve(count);
-            usedIndices.reserve(count);
+            usedIndices.reserve(GRID_ROWS * GRID_COLS);
         }
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
@@ -102,13 +102,25 @@ class World {
                 sf::Color color(rand() % 255, rand() % 255, rand() % 255);
 
                 sf::Vector2f v(-50.f,0.f);
-                for (int i = 0; i < 11; ++i) {
-                    particles.emplace_back(startPos + v, 3.f, color);
-                    v.x += 10;
-                }
+                if (particles.size() + 11 > PARTICLE_COUNT) {
+                    int diff = PARTICLE_COUNT - particles.size();
 
-                for (int i = particles.size() - 11; i < particles.size(); ++i) {
-                    particles[i].prev_position = particles[i].position - startingVel * dt;
+                    for (int i = 0; i < diff; ++i) {
+                        particles.emplace_back(startPos, 3.f, color);
+                    }
+
+                    for (int i = 0; i < diff; ++i) {
+                        particles[i].prev_position = particles[i].position - startingVel * dt;
+                    }
+                } else {
+                    for (int i = 0; i < 11; ++i) {
+                        particles.emplace_back(startPos + v, 3.f, color);
+                        v.x += 10;
+                    }
+
+                    for (int i = particles.size() - 11; i < particles.size(); ++i) {
+                        particles[i].prev_position = particles[i].position - startingVel * dt;
+                    }
                 }
 
                 updateStartingVel();
