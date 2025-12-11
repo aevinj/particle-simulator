@@ -99,9 +99,17 @@ class World {
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
             if (elapsed_time >= SPAWN_DELAY && particles.size() < PARTICLE_COUNT) {
-                particles.emplace_back(startPos, 3.f, sf::Color(rand() % 255, rand() % 255, rand() % 255));
-                auto& latest = particles.back();
-                latest.prev_position = latest.position - startingVel * dt;
+                sf::Color color(rand() % 255, rand() % 255, rand() % 255);
+
+                sf::Vector2f v(-50.f,0.f);
+                for (int i = 0; i < 11; ++i) {
+                    particles.emplace_back(startPos + v, 3.f, color);
+                    v.x += 10;
+                }
+
+                for (int i = particles.size() - 11; i < particles.size(); ++i) {
+                    particles[i].prev_position = particles[i].position - startingVel * dt;
+                }
 
                 updateStartingVel();
                 spawner.restart();
@@ -130,7 +138,7 @@ class World {
                 }
 
                 for (auto& [row, col] : usedIndices) {
-                    grid[row][cell].clear();
+                    grid[row][col].clear();
                 }
                 usedIndices.clear();
                 
