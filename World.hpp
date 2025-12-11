@@ -3,6 +3,7 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <cmath>
+#include <string>
 
 #include "Config.hpp"
 #include "Particle.hpp"
@@ -12,9 +13,8 @@ class World {
     private:
         const int PARTICLE_COUNT;
         const int SUBSTEPS;
-        const int ITERATIONS;
-        static const int CELL_SIZE = 8;
-        const float MOUSE_RADIUS = 200.f;
+        static const int CELL_SIZE = 6;
+        const float MOUSE_RADIUS = 100.f;
         const float MOUSE_STRENGTH = 5000.f;
         const float SPAWN_DELAY = 0.00005f; 
         const sf::Vector2f startPos = {static_cast<float>(SCREEN_WIDTH) / 2.f, 10.f};
@@ -31,6 +31,7 @@ class World {
             {1,-1}
         };
         ParticleRenderer renderer = ParticleRenderer(PARTICLE_COUNT);
+        std::vector<std::pair<int, int>> usedIndices;
 
         void resolveCollision(Particle &a, Particle &b) {
             sf::Vector2f v = a.position - b.position;
@@ -70,11 +71,30 @@ class World {
             }
         }
 
+        void handleMouseHeld(Particle &particle, const int cx, const int cy, const sf::Vector2f &mousePos) {
+            int pcx = static_cast<int>(particle.position.x / CELL_SIZE);
+            int pcy = static_cast<int>(particle.position.y / CELL_SIZE);
+
+            if (pcx <= cx + (MOUSE_RADIUS / CELL_SIZE) &&
+                pcx >= cx - (MOUSE_RADIUS / CELL_SIZE) &&
+                pcy <= cy + (MOUSE_RADIUS / CELL_SIZE) &&
+                pcy >= cy - (MOUSE_RADIUS / CELL_SIZE)) {
+
+
+                sf::Vector2f dir = mousePos - particle.position;
+                float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                sf::Vector2f normalized = dir / dist;
+
+                particle.acceleration += normalized * MOUSE_STRENGTH;
+            }
+        }
+
     public:
         std::vector<Particle> particles;
 
-        World(const int count, const int substeps, const int iterations) : PARTICLE_COUNT(count), SUBSTEPS(substeps), ITERATIONS(iterations) {
+        World(const int count, const int substeps) : PARTICLE_COUNT(count), SUBSTEPS(substeps){
             particles.reserve(count);
+            usedIndices.reserve(count);
         }
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
@@ -90,27 +110,18 @@ class World {
 
         void update(InputState &inpState) {
             float substep_dt = dt / static_cast<float>(SUBSTEPS);
+
+            int cx, cy;
+
+            if (inpState.mouseHeld) {
+                cx = static_cast<int>(inpState.mousePos.x / CELL_SIZE);
+                cy = static_cast<int>(inpState.mousePos.y / CELL_SIZE);
+            }
+
             for (int s = 0; s < SUBSTEPS; ++s) {
                 for (auto &particle : particles) {
                     if (inpState.mouseHeld) {
-                        int cx = static_cast<int>(inpState.mousePos.x / CELL_SIZE);
-                        int cy = static_cast<int>(inpState.mousePos.y / CELL_SIZE);
-
-                        int pcx = static_cast<int>(particle.position.x / CELL_SIZE);
-                        int pcy = static_cast<int>(particle.position.y / CELL_SIZE);
-
-                        if (pcx <= cx + (MOUSE_RADIUS / CELL_SIZE) &&
-                            pcx >= cx - (MOUSE_RADIUS / CELL_SIZE) &&
-                            pcy <= cy + (MOUSE_RADIUS / CELL_SIZE) &&
-                            pcy >= cy - (MOUSE_RADIUS / CELL_SIZE)) {
-
-
-                            sf::Vector2f dir = inpState.mousePos - particle.position;
-                            float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
-                            sf::Vector2f normalized = dir / dist;
-
-                            particle.acceleration += normalized * MOUSE_STRENGTH;
-                        }
+                        handleMouseHeld(particle, cx, cy, inpState.mousePos);
                     }
 
                     particle.applyGravity();
@@ -118,58 +129,55 @@ class World {
                     particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
                 }
 
-                for (int row = 0; row < GRID_ROWS; ++row) {
-                    for (int col = 0; col < GRID_COLS; ++col) {
-                        grid[row][col].clear();
-                    }
+                for (auto& [row, col] : usedIndices) {
+                    grid[row][cell].clear();
                 }
+                usedIndices.clear();
                 
                 for (int i = 0; i < particles.size(); ++i) {
                     const auto &p = particles[i];
                     int cx = static_cast<int>(p.position.x / CELL_SIZE);
                     int cy = static_cast<int>(p.position.y / CELL_SIZE);
 
-                    // clamp
                     if (cx < 0) cx = 0;
                     if (cy < 0) cy = 0;
                     if (cx >= GRID_COLS) cx = GRID_COLS - 1;
                     if (cy >= GRID_ROWS) cy = GRID_ROWS - 1;
 
-                    grid[cy][cx].push_back(i); // store index of this particle
+                    grid[cx][cy].push_back(i); 
+                    usedIndices.emplace_back(cx, cy);
                 }
 
-                for (int k = 0; k < ITERATIONS; ++k) {
-                    for (int row = 0; row < GRID_ROWS; ++row) {
-                        for (int col = 0; col < GRID_COLS; ++col) {
-                            auto &cell = grid[row][col];
-                            if (cell.empty()) {
+                for (int row = 0; row < GRID_ROWS; ++row) {
+                    for (int col = 0; col < GRID_COLS; ++col) {
+                        auto &cell = grid[row][col];
+                        if (cell.empty()) {
+                            continue;
+                        }
+                        
+                        for (int a = 0; a < cell.size(); ++a) {
+                            for (int b = a + 1; b < cell.size(); ++b) {
+                                resolveCollision(particles[cell[a]], particles[cell[b]]);
+                            }
+                        }
+
+                        for (auto& [dr, dc] : ds) {
+                            int nr = dr + row;
+                            int nc = dc + col;
+
+                            if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) {
                                 continue;
                             }
-                            
-                            for (int a = 0; a < cell.size(); ++a) {
-                                for (int b = a + 1; b < cell.size(); ++b) {
-                                    resolveCollision(particles[cell[a]], particles[cell[b]]);
-                                }
+
+                            auto &neighbour = grid[nr][nc];
+
+                            if (neighbour.empty()) {
+                                continue;
                             }
 
-                            for (auto& [dr, dc] : ds) {
-                                int nr = dr + row;
-                                int nc = dc + col;
-
-                                if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) {
-                                    continue;
-                                }
-
-                                auto &neighbour = grid[nr][nc];
-
-                                if (neighbour.empty()) {
-                                    continue;
-                                }
-
-                                for (int a : cell) {
-                                    for (int b : neighbour) {
-                                        resolveCollision(particles[a], particles[b]);
-                                    }
+                            for (int a : cell) {
+                                for (int b : neighbour) {
+                                    resolveCollision(particles[a], particles[b]);
                                 }
                             }
                         }

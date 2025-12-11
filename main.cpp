@@ -5,7 +5,6 @@
 #include "World.hpp"
 #include "Particle.hpp"
 
-
 int main() {
     srand(1);
     sf::RenderWindow window(sf::VideoMode(SCREEN_WIDTH, SCREEN_HEIGHT), "Particle Sim");
@@ -16,8 +15,8 @@ int main() {
     VisualText visualText;
     InputState inpState;
 
-    // Particle count, substeps, iterations
-    World world(5000, 6, 1);
+    // Particle count, substeps 
+    World world(5000, 6);
 
     while (window.isOpen()) {
         sf::Event event;
