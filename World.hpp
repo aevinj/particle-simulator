@@ -4,6 +4,12 @@
 #include <vector>
 #include <cmath>
 #include <string>
+#include <algorithm>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <iostream>
+#include <stdint.h>
 
 #include "Config.hpp"
 #include "Particle.hpp"
@@ -21,6 +27,7 @@ class World {
         sf::Vector2f startingVel = {0.f, 500.f}; 
         bool goingUp = true;
         const float dt = 1.f / 60.f;
+        float substep_dt;
         static constexpr int GRID_COLS = (SCREEN_WIDTH + CELL_SIZE - 1) / CELL_SIZE;
         static constexpr int GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
         std::vector<int> grid[GRID_ROWS][GRID_COLS];
@@ -32,6 +39,20 @@ class World {
         };
         ParticleRenderer renderer = ParticleRenderer(PARTICLE_COUNT);
         std::vector<std::pair<int, int>> usedIndices;
+
+        int numThreads;
+        std::vector<std::thread> workers;
+        std::mutex mtx;
+        std::condition_variable cvWork, cvDone;
+        bool terminateWorkers = false;
+        int activeWorkers = 0;
+        std::uint64_t jobEpoch = 0;
+
+        int workerParticleCount = 0;
+        bool mouseHeldForStep = false;
+        int mcx = 0;
+        int mcy = 0;
+        sf::Vector2f mousePosForStep;
 
         void resolveCollision(Particle &a, Particle &b) {
             sf::Vector2f v = a.position - b.position;
@@ -89,12 +110,85 @@ class World {
             }
         }
 
+        void workerLoop(int id) {
+            std::uint64_t localJobEpoch = 0;
+
+            while (true) {
+                std::unique_lock<std::mutex> lock(mtx);
+                cvWork.wait(lock, [this, &localJobEpoch] () {
+                    return terminateWorkers || jobEpoch != localJobEpoch;
+                });
+
+                if (terminateWorkers) {
+                    break;
+                }
+
+                localJobEpoch = jobEpoch;
+
+                int n = workerParticleCount;
+                bool mouseHeldForStep_ = mouseHeldForStep;
+                int MCX = mcx, MCY = mcy;
+                sf::Vector2f mousePos_ = mousePosForStep;
+
+                int chunk = (n + numThreads - 1) / numThreads;
+                int begin = id * chunk;
+                int end = std::min(n, begin + chunk);
+
+                if (begin >= end) {
+                    if (--activeWorkers == 0) {
+                        cvDone.notify_one();
+                    }
+                    continue;
+                }
+
+                lock.unlock();
+                for (int i = begin; i < end; ++i) {
+                    Particle &p = particles[i];
+                    if (mouseHeldForStep_) {
+                        handleMouseHeld(p, MCX, MCY, mousePos_);
+                    }
+
+                    p.applyGravity();
+                    p.integrate(substep_dt);
+                    p.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+                }
+
+                lock.lock();
+                if (--activeWorkers == 0) {
+                    cvDone.notify_one();
+                }
+                lock.unlock();
+            }
+        }
+
     public:
         std::vector<Particle> particles;
 
         World(const int count, const int substeps) : PARTICLE_COUNT(count), SUBSTEPS(substeps){
             particles.reserve(count);
             usedIndices.reserve(GRID_ROWS * GRID_COLS);
+            substep_dt = dt / static_cast<float>(SUBSTEPS);
+
+            numThreads = std::max(static_cast<int>(std::thread::hardware_concurrency()), 1);
+            workers.reserve(numThreads);
+
+            for (int id = 0; id < numThreads; ++id) {
+                workers.emplace_back([this, id] () {
+                    workerLoop(id);
+                });
+            }
+        }
+
+        ~World() {
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                terminateWorkers = true;
+            }
+            cvWork.notify_all();
+
+            for (auto &th : workers) {
+                th.join();
+            }
         }
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
@@ -109,7 +203,8 @@ class World {
                         particles.emplace_back(startPos, 3.f, color);
                     }
 
-                    for (int i = 0; i < diff; ++i) {
+                    int startIndex = static_cast<int>(particles.size()) - diff;
+                    for (int i = startIndex; i < particles.size(); ++i) {
                         particles[i].prev_position = particles[i].position - startingVel * dt;
                     }
                 } else {
@@ -129,8 +224,6 @@ class World {
         }
 
         void update(InputState &inpState) {
-            float substep_dt = dt / static_cast<float>(SUBSTEPS);
-
             int cx, cy;
 
             if (inpState.mouseHeld) {
@@ -139,15 +232,42 @@ class World {
             }
 
             for (int s = 0; s < SUBSTEPS; ++s) {
-                for (auto &particle : particles) {
-                    if (inpState.mouseHeld) {
-                        handleMouseHeld(particle, cx, cy, inpState.mousePos);
-                    }
+                std::unique_lock<std::mutex> lock(mtx);
 
-                    particle.applyGravity();
-                    particle.integrate(substep_dt); 
-                    particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+                workerParticleCount = static_cast<int>(particles.size());
+                mouseHeldForStep    = inpState.mouseHeld;
+                if (mouseHeldForStep) {
+                    mcx             = cx;
+                    mcy             = cy;
+                    mousePosForStep = inpState.mousePos;
                 }
+
+                if (workerParticleCount == 0) {
+                    activeWorkers = 0;
+                    // no notify_all, no wait – just unlock and continue
+                    lock.unlock();
+                    continue;
+                } else {
+                    activeWorkers = numThreads;
+                    jobEpoch++;
+
+                    lock.unlock();
+                    cvWork.notify_all();
+
+                    std::unique_lock<std::mutex> lock2(mtx);
+                    cvDone.wait(lock2, [this] { return activeWorkers == 0; });
+                }
+
+                // TODO : replace below with mutlithreading
+                // for (auto &particle : particles) {
+                //     if (inpState.mouseHeld) {
+                //         handleMouseHeld(particle, cx, cy, inpState.mousePos);
+                //     }
+
+                //     particle.applyGravity();
+                //     particle.integrate(substep_dt); 
+                //     particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+                // }
 
                 for (auto& [row, col] : usedIndices) {
                     grid[row][col].clear();
@@ -164,8 +284,8 @@ class World {
                     if (cx >= GRID_COLS) cx = GRID_COLS - 1;
                     if (cy >= GRID_ROWS) cy = GRID_ROWS - 1;
 
-                    grid[cx][cy].push_back(i); 
-                    usedIndices.emplace_back(cx, cy);
+                    grid[cy][cx].push_back(i); 
+                    usedIndices.emplace_back(cy, cx);
                 }
 
                 for (int row = 0; row < GRID_ROWS; ++row) {
