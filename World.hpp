@@ -101,24 +101,24 @@ class World {
             if (elapsed_time >= SPAWN_DELAY && particles.size() < PARTICLE_COUNT) {
                 sf::Color color(rand() % 255, rand() % 255, rand() % 255);
 
-                sf::Vector2f v(-50.f,0.f);
-                if (particles.size() + 11 > PARTICLE_COUNT) {
+                sf::Vector2f v(-100.f,0.f);
+                if (particles.size() + 21 > PARTICLE_COUNT) {
                     int diff = PARTICLE_COUNT - particles.size();
 
                     for (int i = 0; i < diff; ++i) {
-                        particles.emplace_back(startPos, 3.f, color);
+                        particles.emplace_back(startPos, 2.f, color);
                     }
 
                     for (int i = 0; i < diff; ++i) {
                         particles[i].prev_position = particles[i].position - startingVel * dt;
                     }
                 } else {
-                    for (int i = 0; i < 11; ++i) {
-                        particles.emplace_back(startPos + v, 3.f, color);
+                    for (int i = 0; i < 21; ++i) {
+                        particles.emplace_back(startPos + v, 2.f, color);
                         v.x += 10;
                     }
 
-                    for (int i = particles.size() - 11; i < particles.size(); ++i) {
+                    for (int i = particles.size() - 21; i < particles.size(); ++i) {
                         particles[i].prev_position = particles[i].position - startingVel * dt;
                     }
                 }
