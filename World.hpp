@@ -224,6 +224,7 @@ class World {
         }
 
         void update(InputState &inpState) {
+            if (particles.size() == 0) return;
             int cx, cy;
 
             if (inpState.mouseHeld) {
@@ -234,6 +235,7 @@ class World {
             for (int s = 0; s < SUBSTEPS; ++s) {
                 std::unique_lock<std::mutex> lock(mtx);
 
+                // capture current state for threads
                 workerParticleCount = static_cast<int>(particles.size());
                 mouseHeldForStep    = inpState.mouseHeld;
                 if (mouseHeldForStep) {
@@ -241,39 +243,23 @@ class World {
                     mcy             = cy;
                     mousePosForStep = inpState.mousePos;
                 }
+                activeWorkers = numThreads;
+                jobEpoch++;
 
-                if (workerParticleCount == 0) {
-                    activeWorkers = 0;
-                    // no notify_all, no wait – just unlock and continue
-                    lock.unlock();
-                    continue;
-                } else {
-                    activeWorkers = numThreads;
-                    jobEpoch++;
+                lock.unlock();
+                cvWork.notify_all();
 
-                    lock.unlock();
-                    cvWork.notify_all();
+                lock.lock();
+                cvDone.wait(lock, [this] { return activeWorkers == 0; });
+                lock.unlock();
 
-                    std::unique_lock<std::mutex> lock2(mtx);
-                    cvDone.wait(lock2, [this] { return activeWorkers == 0; });
-                }
-
-                // TODO : replace below with mutlithreading
-                // for (auto &particle : particles) {
-                //     if (inpState.mouseHeld) {
-                //         handleMouseHeld(particle, cx, cy, inpState.mousePos);
-                //     }
-
-                //     particle.applyGravity();
-                //     particle.integrate(substep_dt); 
-                //     particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
-                // }
-
+                // clear usedIndices from previous iteration
                 for (auto& [row, col] : usedIndices) {
                     grid[row][col].clear();
                 }
                 usedIndices.clear();
                 
+                // update grid with correct positions
                 for (int i = 0; i < particles.size(); ++i) {
                     const auto &p = particles[i];
                     int cx = static_cast<int>(p.position.x / CELL_SIZE);
@@ -288,6 +274,7 @@ class World {
                     usedIndices.emplace_back(cy, cx);
                 }
 
+                // handle particle collisions
                 for (int row = 0; row < GRID_ROWS; ++row) {
                     for (int col = 0; col < GRID_COLS; ++col) {
                         auto &cell = grid[row][col];
