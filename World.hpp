@@ -52,37 +52,40 @@ class World {
             {1,-1}
         };
         ParticleRenderer renderer = ParticleRenderer(PARTICLE_COUNT);
-        std::vector<int> activeCells;
-        std::vector<uint32_t> cellStamp;
-        uint32_t stampEpoch = 1;
 
-        void resolveCollision(Particle &a, Particle &b) {
+        void resolveCollision(Particle& a, Particle& b) {
             sf::Vector2f v = a.position - b.position;
-            float square_dist = v.x*v.x + v.y*v.y;
+            float dist2 = v.x*v.x + v.y*v.y;
             float min_dist = a.radius + b.radius;
 
-            if (square_dist < 1e-12f) {
-                v = {1.f, 0.f};
-                square_dist = 1.f;
+            if (dist2 < 1e-12f) { v = {1.f, 0.f}; dist2 = 1.f; }
+            if (dist2 >= min_dist * min_dist) return;
+
+            float dist = std::sqrt(dist2);
+
+            float delta = 0.25f * (min_dist - dist);
+            sf::Vector2f n = (v / dist) * delta;
+
+            a.position += n;
+            b.position -= n;
+        }
+
+        void clearGrid() {
+            for (int y = 0; y < GRID_ROWS; ++y)
+                for (int x = 0; x < GRID_COLS; ++x)
+                    grid[y][x].clear();
+        }
+
+        void updateGrid() {
+            clearGrid();
+            for (int i = 0; i < (int)particles.size(); ++i) {
+                const auto& p = particles[i];
+                int cx = (int)(p.position.x / CELL_SIZE);
+                int cy = (int)(p.position.y / CELL_SIZE);
+                if (cx < 0 || cy < 0 || cx >= GRID_COLS || cy >= GRID_ROWS) continue;
+                grid[cy][cx].push_back(i);
             }
-            if (square_dist >= min_dist * min_dist) {
-                return;
-            }
-
-            float dist = std::sqrt(square_dist);
-            sf::Vector2f normal = v / dist;
-            float overlap = min_dist - dist;
-
-            const float stiffness = 0.85f;
-            float correction = overlap * 0.5f * stiffness;
-            sf::Vector2f corrVec = normal * correction;
-
-            a.position += corrVec;
-            b.position -= corrVec;
-
-            // a.prev_position += corrVec;
-            // b.prev_position -= corrVec;
-        } 
+        }
 
         void updateStartingVel() {
             if (goingUp) {
@@ -120,18 +123,45 @@ class World {
             }
         }
 
+        void collideCells(int x1, int y1, int x2, int y2) {
+            auto& c1 = grid[y1][x1];
+            auto& c2 = grid[y2][x2];
+            for (int id1 : c1) {
+                for (int id2 : c2) {
+                    if (id1 == id2) continue;
+                    resolveCollision(particles[id1], particles[id2]);
+                }
+            }
+        }
+
+        void checkCollisions() {
+            static const int dx[5] = { 1, 1, 0, 0, -1 };
+            static const int dy[5] = { 0, 1, 0, 1,  1 };
+
+            for (int x = 0; x < GRID_COLS; ++x) {
+                for (int y = 0; y < GRID_ROWS; ++y) {
+                    if (grid[y][x].empty()) continue;
+                    for (int k = 0; k < 5; ++k) {
+                        int nx = x + dx[k];
+                        int ny = y + dy[k];
+                        if (nx < 0 || ny < 0 || nx >= GRID_COLS || ny >= GRID_ROWS) continue;
+                        collideCells(x, y, nx, ny);
+                    }
+                }
+            }
+        }
+
     public:
         std::vector<Particle> particles;
 
         World(const int count, const int substeps) : PARTICLE_COUNT(count), SUBSTEPS(substeps){
             particles.reserve(count);
-            activeCells.reserve(GRID_ROWS * GRID_COLS);
-            cellStamp.assign(GRID_ROWS * GRID_COLS, 0);
         }
 
         void spawnIfPossible(const float elapsed_time, sf::Clock &spawner) {
             if (elapsed_time >= SPAWN_DELAY && particles.size() < PARTICLE_COUNT) {
                 sf::Color color(rand() % 255, rand() % 255, rand() % 255);
+                const float substep_dt = dt / static_cast<float>(SUBSTEPS);
 
                 sf::Vector2f v(-100.f,0.f);
                 if (particles.size() + 21 > PARTICLE_COUNT) {
@@ -142,7 +172,7 @@ class World {
                     }
 
                     for (int i = particles.size() - diff; i < particles.size(); ++i){
-                        particles[i].prev_position = particles[i].position - startingVel * dt;
+                        particles[i].prev_position = particles[i].position - startingVel * substep_dt;
                     }
                 } else {
                     for (int i = 0; i < 21; ++i) {
@@ -151,7 +181,7 @@ class World {
                     }
 
                     for (int i = particles.size() - 21; i < particles.size(); ++i) {
-                        particles[i].prev_position = particles[i].position - startingVel * dt;
+                        particles[i].prev_position = particles[i].position - startingVel * substep_dt;
                     }
                 }
 
@@ -160,105 +190,38 @@ class World {
             }
         }
 
-        void update(InputState &inpState) {
+        void update(InputState& inpState) {
             if (particles.empty()) return;
 
-            float substep_dt = dt / static_cast<float>(SUBSTEPS);
+            const float substep_dt = dt / static_cast<float>(SUBSTEPS);
+            const float dampening = 0.8f;
+            const float padding = static_cast<float>(CELL_SIZE);
 
-            int mxCellX = 0, mxCellY = 0;
-            if (inpState.mouseHeld) {
-                mxCellX = static_cast<int>(inpState.mousePos.x / CELL_SIZE);
-                mxCellY = static_cast<int>(inpState.mousePos.y / CELL_SIZE);
-            }
+            updateGrid();
 
             for (int s = 0; s < SUBSTEPS; ++s) {
-                Timer timer;
 
-                for (auto &particle : particles) {
-                    if (inpState.mouseHeld) {
-                        handleMouseHeld(particle, mxCellX, mxCellY, inpState.mousePos);
-                    }
-
-                    particle.applyGravity();
-                    particle.integrate(substep_dt);
-                    particle.applyBounds(SCREEN_HEIGHT, SCREEN_WIDTH);
+                for (auto& p : particles) {
+                    p.accelerate(Particle::GRAVITY);
                 }
 
-                // std::cout << "First loop: " << timer.getTime() << std::endl;
-                // timer.restart();
+                checkCollisions();
 
-                for (int cellId : activeCells) {
-                    int row = cellId / GRID_COLS;
-                    int col = cellId % GRID_COLS;
-                    grid[row][col].clear();
-                }
-                activeCells.clear();
-
-                ++stampEpoch;
-                if (stampEpoch == 0) { // extremely rare wraparound protection
-                    std::fill(cellStamp.begin(), cellStamp.end(), 0);
-                    stampEpoch = 1;
+                for (auto& p : particles) {
+                    p.applyBorderBounce((float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, padding, dampening);
                 }
 
-                // std::cout << "Clearing: " << timer.getTime() << std::endl;
-                // timer.restart();
+                for (auto& p : particles) {
+                    p.integrate(substep_dt);
 
-                for (int i = 0; i < static_cast<int>(particles.size()); ++i) {
-                    const auto &p = particles[i];
-
-                    int cx = static_cast<int>(p.position.x / CELL_SIZE);
-                    int cy = static_cast<int>(p.position.y / CELL_SIZE);
-
-                    if (cx < 0) cx = 0;
-                    if (cy < 0) cy = 0;
-                    if (cx >= GRID_COLS) cx = GRID_COLS - 1;
-                    if (cy >= GRID_ROWS) cy = GRID_ROWS - 1;
-
-                    grid[cy][cx].push_back(i);
-
-                    int cellId = cy * GRID_COLS + cx;
-                    if (cellStamp[cellId] != stampEpoch) {
-                        cellStamp[cellId] = stampEpoch;
-                        activeCells.push_back(cellId);
+                    sf::Vector2f disp = p.getDisplacement();
+                    float disp2 = disp.x*disp.x + disp.y*disp.y;
+                    if (disp2 > 2.f * padding) {
+                        p.prev_position = p.position; 
                     }
                 }
 
-                // std::cout << "grid stuff: " << timer.getTime() << std::endl;
-                timer.restart();
-
-                for (int cellId : activeCells) { 
-                    int row = cellId / GRID_COLS; 
-                    int col = cellId % GRID_COLS; 
-
-                    auto &cell = grid[row][col]; 
-                    if (cell.empty()) continue; // same-cell pairs 
-
-                    for (int a = 0; a < static_cast<int>(cell.size()); ++a) {
-                        for (int b = a + 1; b < static_cast<int>(cell.size()); ++b) { 
-                            resolveCollision(particles[cell[a]], particles[cell[b]]); 
-                        } 
-                    } 
-
-                    for (const auto& [dr, dc] : ds) { 
-                        int nr = row + dr; 
-                        int nc = col + dc; 
-
-                        if (nr < 0 || nr >= GRID_ROWS || nc < 0 || nc >= GRID_COLS) continue; 
-                        int nId = nr * GRID_COLS + nc; 
-                        if (cellStamp[nId] != stampEpoch) continue; 
-
-                        auto &neighbour = grid[nr][nc]; 
-                        if (neighbour.empty()) continue; 
-
-                        for (int aIdx : cell) { 
-                            for (int bIdx : neighbour) { 
-                                resolveCollision(particles[aIdx], particles[bIdx]); 
-                            } 
-                        } 
-                    }
-                }
-
-                std::cout << "collisions: " << timer.getTime() << std::endl;
+                updateGrid();
             }
         }
 

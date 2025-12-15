@@ -1,10 +1,5 @@
 #pragma once
-
 #include <SFML/Graphics.hpp>
-
-inline constexpr float DAMPING     = 0.98f;
-inline constexpr float RESTITUTION = 0.8f;   // how bouncy surfaces are
-inline constexpr float FRICTION    = 0.99f;
 
 struct Particle {
     sf::Vector2f position;
@@ -12,80 +7,51 @@ struct Particle {
     sf::Vector2f acceleration;
     float radius;
     sf::Color color;
-    inline static sf::Vector2f GRAVITY = {0.f, 2000.f}; 
 
-    Particle(sf::Vector2f start_pos, float r, sf::Color color)
+    inline static sf::Vector2f GRAVITY = {0.f, 0.f}; 
+
+    Particle(sf::Vector2f start_pos, float r, sf::Color c)
         : position(start_pos)
         , prev_position(start_pos)
         , acceleration(0.f, 0.f)
         , radius(r)
-        , color(color)
+        , color(c)
     {}
 
+    void accelerate(sf::Vector2f a) { acceleration += a; }
+
     void integrate(float dt) {
-        // Verlet: p_new = p + (p - p_prev) * damping + a * dt^2
         sf::Vector2f displacement = position - prev_position;
-        sf::Vector2f new_position = position + displacement * DAMPING + acceleration * (dt * dt);
-
         prev_position = position;
-        position      = new_position;
-
+        position = position + displacement + acceleration * (dt * dt);
         acceleration = {0.f, 0.f};
     }
 
-    void applyGravity() {
-        acceleration += GRAVITY;
+    sf::Vector2f getDisplacement() const {
+        return position - prev_position;
     }
 
-    void applyBounds(int height, int width) {
-        sf::Vector2f velocity = position - prev_position;
+    void setVelocity(sf::Vector2f v, float dt) {
+        prev_position = position - v * dt;
+    }
 
-        // floor
-        if (position.y + radius > height) {
-            position.y = height - radius;
+    void applyBorderBounce(float width, float height, float padding, float dampening) {
+        const sf::Vector2f pos = position;
+        const sf::Vector2f disp = getDisplacement();
 
-            if (velocity.y > 0.f) {
-                velocity.y = -velocity.y * RESTITUTION;
-                velocity.x *= FRICTION;
-            }
+        const sf::Vector2f dx = {-disp.x,  disp.y};
+        const sf::Vector2f dy = { disp.x, -disp.y};
 
-            prev_position = position - velocity;
+        // Left/right
+        if (pos.x < padding || pos.x > width - padding) {
+            position.x = (pos.x < padding) ? padding : (width - padding);
+            prev_position = position - (dx * dampening);
         }
 
-        // ceil
-        if (position.y - radius < 0.f) {
-            position.y = radius;
-
-            if (velocity.y < 0.f) {
-                velocity.y = -velocity.y * RESTITUTION;
-                velocity.x *= FRICTION;
-            }
-
-            prev_position = position - velocity;
-        }
-
-        // left wall
-        if (position.x - radius < 0.f) {
-            position.x = radius;
-
-            if (velocity.x < 0.f) {
-                velocity.x = -velocity.x * RESTITUTION;
-                velocity.y *= FRICTION;
-            }
-
-            prev_position = position - velocity;
-        }
-
-        // right wall
-        if (position.x + radius > width) {
-            position.x = width - radius;
-
-            if (velocity.x > 0.f) {
-                velocity.x = -velocity.x * RESTITUTION;
-                velocity.y *= FRICTION;
-            }
-
-            prev_position = position - velocity;
+        // Top/bottom
+        if (pos.y < padding || pos.y > height - padding) {
+            position.y = (pos.y < padding) ? padding : (height - padding);
+            prev_position = position - (dy * dampening);
         }
     }
 };
