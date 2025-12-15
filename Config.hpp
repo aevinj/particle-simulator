@@ -26,13 +26,13 @@ struct InputState {
 
     void updateGravityIfNeeded() {
         if (leftPressed) {
-            Particle::GRAVITY = {-2000.f, 0.f};
+            Particle::GRAVITY = {-100.f, 0.f};
         } else if (downPressed) {
-            Particle::GRAVITY = {0.f, 2000.f};
+            Particle::GRAVITY = {0.f, 100.f};
         } else if (rightPressed) {
-            Particle::GRAVITY =  {2000.f, 0.f};
+            Particle::GRAVITY =  {100.f, 0.f};
         } else if (upPressed) {
-            Particle::GRAVITY = {0.f, -2000.f};
+            Particle::GRAVITY = {0.f, -100.f};
         }
     }
 };
