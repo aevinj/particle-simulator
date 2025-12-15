@@ -28,7 +28,6 @@ class Timer {
             start = Clock::now();
         }
 };
-        
 
 class World {
     private:
@@ -117,6 +116,7 @@ class World {
 
                 sf::Vector2f dir = mousePos - particle.position;
                 float dist = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+                if (dist < 1e-12) return;
                 sf::Vector2f normalized = dir / dist;
 
                 particle.acceleration += normalized * MOUSE_STRENGTH;
@@ -200,9 +200,36 @@ class World {
             updateGrid();
 
             for (int s = 0; s < SUBSTEPS; ++s) {
+                int mx = 0, my = 0;
+                int rCells = 0;
+
+                if (inpState.mouseHeld) {
+                    mx = static_cast<int>(inpState.mousePos.x / CELL_SIZE);
+                    my = static_cast<int>(inpState.mousePos.y / CELL_SIZE);
+                    rCells = static_cast<int>(MOUSE_RADIUS / CELL_SIZE) + 1;
+
+                    mx = std::max(0, std::min(mx, GRID_COLS - 1));
+                    my = std::max(0, std::min(my, GRID_ROWS - 1));
+                }
 
                 for (auto& p : particles) {
                     p.accelerate(Particle::GRAVITY);
+                }
+
+                if (inpState.mouseHeld) {
+                    const int x0 = std::max(0, mx - rCells);
+                    const int x1 = std::min(GRID_COLS - 1, mx + rCells);
+                    const int y0 = std::max(0, my - rCells);
+                    const int y1 = std::min(GRID_ROWS - 1, my + rCells);
+
+                    for (int cx = x0; cx <= x1; ++cx) {
+                        for (int cy = y0; cy <= y1; ++cy) {
+                            auto& cell = grid[cy][cx];
+                            for (int idx : cell) {
+                                handleMouseHeld(particles[idx], mx, my, inpState.mousePos);
+                            }
+                        }
+                    }
                 }
 
                 checkCollisions();
