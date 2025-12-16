@@ -62,7 +62,7 @@ private:
 
         float dist = std::sqrt(dist2);
 
-        float delta = 0.25f * (min_dist - dist);
+        float delta = 0.5f * (min_dist - dist);
         sf::Vector2f n = (v / dist) * delta;
 
         a.position += n;
