@@ -7,9 +7,19 @@
 #include <iostream>
 #include <algorithm>
 
+#include <thread>
+#include <condition_variable>
+#include <mutex>
+#include <atomic>
+
 #include "Config.hpp"
 #include "Particle.hpp"
 #include "ParticleRenderer.hpp"
+
+struct Slice {
+    int start;
+    int end;
+};
 
 class World {
 private:
@@ -40,6 +50,89 @@ private:
         int ids[CELL_CAP];
     };
     std::vector<Cell> grid;
+
+    std::mutex mtx;
+    std::condition_variable cvDone, cvWork;
+    std::vector<std::thread> workers;
+    std::atomic<bool> stop{false};
+    std::vector<Slice> evenSlices, oddSlices;
+    const std::vector<Slice>* currentSlices = nullptr;
+    std::atomic<std::size_t> nextJob{0};
+    std::atomic<int> remaining{0};
+    uint64_t generation = 0;
+
+    void workerLoop() {
+        uint64_t localGen = 0;
+
+        while (true) {
+            const std::vector<Slice>* slicesPtr = nullptr;
+
+            {
+                std::unique_lock<std::mutex> lock(mtx);
+                cvWork.wait(lock, [this, &localGen] () {
+                    return stop.load(std::memory_order_acquire) || generation != localGen;
+                });
+
+                if (stop.load(std::memory_order_acquire)) return;
+
+                localGen = generation;
+                slicesPtr = currentSlices;
+            }
+
+            for (;;) {
+                size_t j = nextJob.fetch_add(1, std::memory_order_relaxed);
+                if (j >= slicesPtr->size()) break;
+                solveSlice((*slicesPtr)[j]);
+            }
+
+            if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                std::lock_guard<std::mutex> lock(mtx);
+                cvDone.notify_one();
+            }
+        }
+    }
+
+    void runPass(const std::vector<Slice> &slices) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            currentSlices = &slices;
+            nextJob.store(0, std::memory_order_relaxed);
+            remaining.store(static_cast<int>(workers.size()), std::memory_order_relaxed);
+            generation++;
+        }
+
+        cvWork.notify_all();
+
+        std::unique_lock<std::mutex> lock(mtx);
+        cvDone.wait(lock, [this] () {
+            return remaining.load(std::memory_order_relaxed) == 0;
+        });
+    }
+
+    void buildSlices(int threadCount) {
+        evenSlices.clear();
+        oddSlices.clear();
+
+        const int minSliceWidth = 2;
+        const int maxSliceCount = GRID_COLS / minSliceWidth;
+
+        int sliceCount = std::min(2 * threadCount, maxSliceCount);
+        if (sliceCount < 2) sliceCount = 2;
+        if (sliceCount % 2 == 1) --sliceCount;
+
+        const int baseW = GRID_COLS / sliceCount;
+        const int rem   = GRID_COLS % sliceCount;
+
+        int x = 0;
+        for (int s = 0; s < sliceCount; ++s) {
+            int w = baseW + (s < rem ? 1 : 0);
+            Slice sl{ x, x + w };
+            x += w;
+
+            if ((s & 1) == 0) evenSlices.push_back(sl);
+            else              oddSlices.push_back(sl);
+        }
+    }
 
     void clearGrid() {
         for (auto &c : grid) c.count = 0;
@@ -90,8 +183,8 @@ private:
         b.position -= n;
     }
 
-    void checkCollisionsForward() {
-        for (int x = 0; x < GRID_COLS; ++x) {
+    void solveSlice(const Slice &s) {
+        for (int x = s.start; x < s.end; ++x) {
             const int base = x * GRID_ROWS;
 
             for (int y = 0; y < GRID_ROWS; ++y) {
@@ -165,6 +258,28 @@ public:
     {
         particles.reserve(count);
         grid.resize(GRID_ROWS * GRID_COLS);
+
+        int threadCount = static_cast<int>(std::thread::hardware_concurrency());
+        buildSlices(threadCount);
+        workers.reserve(threadCount);
+        for (int i = 0; i < threadCount; ++i) {
+            workers.emplace_back([this] () {
+                workerLoop();
+            });
+        }
+    }
+
+    ~World() {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            stop.store(true, std::memory_order_release);
+            generation++;
+        }
+        cvWork.notify_all();
+
+        for (auto &th : workers) {
+            th.join();
+        }
     }
 
     void spawnIfPossible(const float elapsed_time, sf::Clock& spawner) {
@@ -233,7 +348,8 @@ public:
                 }
             }
 
-            checkCollisionsForward();
+            runPass(evenSlices);
+            runPass(oddSlices);
 
             for (auto& p : particles) {
                 p.applyBorderBounce((float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, padding, dampening);

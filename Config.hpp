@@ -2,8 +2,8 @@
 
 #include "Particle.hpp"
 
-inline const int SCREEN_WIDTH = 800;
-inline const int SCREEN_HEIGHT = 800;
+inline const int SCREEN_WIDTH = 896;
+inline const int SCREEN_HEIGHT = 896;
 
 struct InputState {
     bool mouseHeld = false;
