@@ -68,7 +68,7 @@ private:
     }
 
     inline int cellIndex(int cx, int cy) const {
-        return cy * GRID_COLS + cx;
+        return cx * GRID_ROWS + cy;
     }
 
     void resolveCollision(Particle& a, Particle& b) {
@@ -91,34 +91,37 @@ private:
     }
 
     void checkCollisionsForward() {
-        for (int cellIdx = 0; cellIdx < grid.size(); ++cellIdx) {
-            auto &c = grid[cellIdx];
+        for (int x = 0; x < GRID_COLS; ++x) {
+            const int base = x * GRID_ROWS;
 
-            if (c.count == 0) continue;
+            for (int y = 0; y < GRID_ROWS; ++y) {
+                const int cellIdx = base + y;
+                Cell &c = grid[cellIdx];
 
-            if (c.count >= 2) {
-                for (std::size_t i = 0; i < c.count; ++i) {
-                    int aIdx = c.ids[i];
-                    for (std::size_t j = i + 1; j < c.count; ++j) {
-                        int bIdx = c.ids[j];
-                        resolveCollision(particles[aIdx], particles[bIdx]);
+                if (c.count == 0) continue;
+
+                if (c.count >= 2) {
+                    for (std::size_t i = 0; i < c.count; ++i) {
+                        int aIdx = c.ids[i];
+                        for (std::size_t j = i + 1; j < c.count; ++j) {
+                            int bIdx = c.ids[j];
+                            resolveCollision(particles[aIdx], particles[bIdx]);
+                        }
                     }
                 }
-            }
 
-            int x = cellIdx % GRID_COLS;
-            int y = cellIdx / GRID_COLS;
-            for (int k = 0; k < 4; ++k) {
-                int nx = x + ndx[k];
-                int ny = y + ndy[k];
-                if (!inBoundsCell(nx, ny)) continue;
+                for (int k = 0; k < 4; ++k) {
+                    int nx = x + ndx[k];
+                    int ny = y + ndy[k];
+                    if (!inBoundsCell(nx, ny)) continue;
 
-                auto &ncell = grid[cellIndex(nx, ny)];
-                if (ncell.count == 0) continue;
+                    auto &ncell = grid[cellIndex(nx, ny)];
+                    if (ncell.count == 0) continue;
 
-                for (int aIdx = 0; aIdx < c.count; ++aIdx) {
-                    for (int bIdx = 0; bIdx < ncell.count; ++bIdx) {
-                        resolveCollision(particles[c.ids[aIdx]], particles[ncell.ids[bIdx]]);
+                    for (int aIdx = 0; aIdx < c.count; ++aIdx) {
+                        for (int bIdx = 0; bIdx < ncell.count; ++bIdx) {
+                            resolveCollision(particles[c.ids[aIdx]], particles[ncell.ids[bIdx]]);
+                        }
                     }
                 }
             }
