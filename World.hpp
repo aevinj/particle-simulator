@@ -1,11 +1,9 @@
-
 #pragma once
 
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <cmath>
 #include <string>
-#include <chrono>
 #include <iostream>
 #include <algorithm>
 
@@ -13,21 +11,13 @@
 #include "Particle.hpp"
 #include "ParticleRenderer.hpp"
 
-class Timer {
-    using Clock = std::chrono::steady_clock;
-public:
-    static std::int64_t nowUs() {
-        return std::chrono::duration_cast<std::chrono::microseconds>(
-            Clock::now().time_since_epoch()
-        ).count();
-    }
-};
-
 class World {
 private:
     const int PARTICLE_COUNT;
     const int SUBSTEPS;
 
+    static constexpr int ndx[4] = { 1,  0,  1, -1 };
+    static constexpr int ndy[4] = { 0,  1,  1,  1 };
     static const int CELL_SIZE = 4;
     static constexpr int GRID_COLS = (SCREEN_WIDTH  + CELL_SIZE - 1) / CELL_SIZE;
     static constexpr int GRID_ROWS = (SCREEN_HEIGHT + CELL_SIZE - 1) / CELL_SIZE;
@@ -44,10 +34,41 @@ private:
 
     ParticleRenderer renderer = ParticleRenderer(PARTICLE_COUNT);
 
-    std::vector<int> grid[GRID_ROWS][GRID_COLS];
+    static constexpr int CELL_CAP = 10;
+    struct Cell {
+        std::uint8_t count;
+        int ids[CELL_CAP];
+    };
+    std::vector<Cell> grid;
+
+    void clearGrid() {
+        for (auto &c : grid) c.count = 0;
+    }
+
+    void buildGrid() {
+        clearGrid();
+
+        for (int i = 0; i < static_cast<int>(particles.size()); ++i) {
+            const auto& p = particles[i];
+            int cx = static_cast<int>(p.position.x / CELL_SIZE);
+            int cy = static_cast<int>(p.position.y / CELL_SIZE);
+            if (!inBoundsCell(cx, cy)) continue;
+
+            Cell &c = grid[cellIndex(cx, cy)];
+            if (c.count < CELL_CAP) {
+                c.ids[c.count++] = i;
+            } else {
+                c.ids[CELL_CAP - 1] = i;
+            }
+        }
+    }
 
     inline bool inBoundsCell(int cx, int cy) const {
         return (cx >= 0 && cy >= 0 && cx < GRID_COLS && cy < GRID_ROWS);
+    }
+
+    inline int cellIndex(int cx, int cy) const {
+        return cy * GRID_COLS + cx;
     }
 
     void resolveCollision(Particle& a, Particle& b) {
@@ -69,56 +90,35 @@ private:
         b.position -= n;
     }
 
-    void clearGrid() {
-        for (int y = 0; y < GRID_ROWS; ++y)
-            for (int x = 0; x < GRID_COLS; ++x)
-                grid[y][x].clear();
-    }
-
-    void buildGrid() {
-        clearGrid();
-
-        for (int i = 0; i < (int)particles.size(); ++i) {
-            const auto& p = particles[i];
-            int cx = (int)(p.position.x / CELL_SIZE);
-            int cy = (int)(p.position.y / CELL_SIZE);
-            if (!inBoundsCell(cx, cy)) continue;
-            grid[cy][cx].push_back(i);
-        }
-    }
-
     void checkCollisionsForward() {
-        static const int ndx[4] = {  1,  0,  1, -1 };
-        static const int ndy[4] = {  0,  1,  1,  1 };
+        for (int cellIdx = 0; cellIdx < grid.size(); ++cellIdx) {
+            auto &c = grid[cellIdx];
 
-        for (int y = 0; y < GRID_ROWS; ++y) {
-            for (int x = 0; x < GRID_COLS; ++x) {
-                auto& cell = grid[y][x];
-                const std::size_t n = cell.size();
-                if (n == 0) continue;
+            if (c.count == 0) continue;
 
-                if (n >= 2) {
-                    for (std::size_t i = 0; i < n; ++i) {
-                        int aIdx = cell[i];
-                        for (std::size_t j = i + 1; j < n; ++j) {
-                            int bIdx = cell[j];
-                            resolveCollision(particles[aIdx], particles[bIdx]);
-                        }
+            if (c.count >= 2) {
+                for (std::size_t i = 0; i < c.count; ++i) {
+                    int aIdx = c.ids[i];
+                    for (std::size_t j = i + 1; j < c.count; ++j) {
+                        int bIdx = c.ids[j];
+                        resolveCollision(particles[aIdx], particles[bIdx]);
                     }
                 }
+            }
 
-                for (int k = 0; k < 4; ++k) {
-                    int nx = x + ndx[k];
-                    int ny = y + ndy[k];
-                    if (!inBoundsCell(nx, ny)) continue;
+            int x = cellIdx % GRID_COLS;
+            int y = cellIdx / GRID_COLS;
+            for (int k = 0; k < 4; ++k) {
+                int nx = x + ndx[k];
+                int ny = y + ndy[k];
+                if (!inBoundsCell(nx, ny)) continue;
 
-                    auto& ncell = grid[ny][nx];
-                    if (ncell.empty()) continue;
+                auto &ncell = grid[cellIndex(nx, ny)];
+                if (ncell.count == 0) continue;
 
-                    for (int aIdx : cell) {
-                        for (int bIdx : ncell) {
-                            resolveCollision(particles[aIdx], particles[bIdx]);
-                        }
+                for (int aIdx = 0; aIdx < c.count; ++aIdx) {
+                    for (int bIdx = 0; bIdx < ncell.count; ++bIdx) {
+                        resolveCollision(particles[c.ids[aIdx]], particles[ncell.ids[bIdx]]);
                     }
                 }
             }
@@ -161,6 +161,7 @@ public:
         , SUBSTEPS(substeps)
     {
         particles.reserve(count);
+        grid.resize(GRID_ROWS * GRID_COLS);
     }
 
     void spawnIfPossible(const float elapsed_time, sf::Clock& spawner) {
@@ -204,12 +205,12 @@ public:
         for (int s = 0; s < SUBSTEPS; ++s) {
             int mx = 0, my = 0, rCells = 0;
             if (inpState.mouseHeld) {
-                mx = std::max(0, std::min((int)(inpState.mousePos.x / CELL_SIZE), GRID_COLS - 1));
-                my = std::max(0, std::min((int)(inpState.mousePos.y / CELL_SIZE), GRID_ROWS - 1));
-                rCells = (int)(MOUSE_RADIUS / CELL_SIZE) + 1;
+                mx = std::max(0, std::min(static_cast<int>(inpState.mousePos.x / CELL_SIZE), GRID_COLS - 1));
+                my = std::max(0, std::min(static_cast<int>(inpState.mousePos.y / CELL_SIZE), GRID_ROWS - 1));
+                rCells = static_cast<int>(MOUSE_RADIUS / CELL_SIZE) + 1;
             }
 
-            for (auto& p : particles) {
+            for (auto &p : particles) {
                 p.accelerate(Particle::GRAVITY);
             }
 
@@ -221,9 +222,9 @@ public:
 
                 for (int cy = y0; cy <= y1; ++cy) {
                     for (int cx = x0; cx <= x1; ++cx) {
-                        auto& cell = grid[cy][cx];
-                        for (int idx : cell) {
-                            handleMouseHeld(particles[idx], mx, my, inpState.mousePos);
+                        auto &cell = grid[cellIndex(cx, cy)];
+                        for (int idx = 0; idx < cell.count; ++idx) {
+                            handleMouseHeld(particles[cell.ids[idx]], mx, my, inpState.mousePos);
                         }
                     }
                 }

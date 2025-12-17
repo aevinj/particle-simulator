@@ -16,7 +16,7 @@ int main() {
     InputState inpState;
 
     // Particle count, substeps 
-    World world(30'000, 8);
+    World world(40'000, 8);
 
     while (window.isOpen()) {
         sf::Event event;
