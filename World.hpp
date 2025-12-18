@@ -12,6 +12,9 @@
 #include <mutex>
 #include <atomic>
 
+#include <fstream>
+#include <filesystem>
+
 #include "Config.hpp"
 #include "Particle.hpp"
 #include "ParticleRenderer.hpp"
@@ -60,6 +63,93 @@ private:
     std::atomic<std::size_t> nextJob{0};
     std::atomic<int> remaining{0};
     uint64_t generation = 0;
+
+    std::vector<sf::Color> targetColors;
+    bool haveTargetColors = false;
+
+    static int clampi(int v, int lo, int hi) {
+        return std::max(lo, std::min(v, hi));
+    }
+
+    static sf::Image scaleNearest(const sf::Image& src, unsigned dstW, unsigned dstH) {
+        sf::Image dst;
+        dst.create(dstW, dstH);
+
+        const unsigned srcW = src.getSize().x;
+        const unsigned srcH = src.getSize().y;
+
+        for (unsigned y = 0; y < dstH; ++y) {
+            const unsigned sy = (srcH * y) / dstH;
+            for (unsigned x = 0; x < dstW; ++x) {
+                const unsigned sx = (srcW * x) / dstW;
+                dst.setPixel(x, y, src.getPixel(sx, sy));
+            }
+        }
+
+        return dst;
+    }
+
+    bool findAssetImagePath(std::string& out) const {
+        namespace fs = std::filesystem;
+
+        static const char* candidates[] = {
+            "../assets/image.png",
+            "../assets/image.jpg",
+            "../assets/image.jpeg",
+            "../assets/image.bmp",
+            "../assets/image.tga",
+            "assets/image.png",
+            "assets/image.jpg",
+            "assets/image.jpeg",
+            "assets/image.bmp",
+            "assets/image.tga"
+        };
+
+        for (const char* p : candidates) {
+            fs::path fp(p);
+            if (fs::exists(fp) && fs::is_regular_file(fp)) {
+                out = fp.string();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void initTargetColorsIfAvailable() {
+        namespace fs = std::filesystem;
+
+        std::string imgPath;
+        if (!findAssetImagePath(imgPath)) return;
+        if (!fs::exists("output.txt") || !fs::is_regular_file("output.txt")) return;
+
+        sf::Image src;
+        if (!src.loadFromFile(imgPath)) return;
+
+        sf::Image resized;
+        if (src.getSize().x == (unsigned)SCREEN_WIDTH && src.getSize().y == (unsigned)SCREEN_HEIGHT) {
+            resized = src;
+        } else {
+            resized = scaleNearest(src, (unsigned)SCREEN_WIDTH, (unsigned)SCREEN_HEIGHT);
+        }
+
+        std::ifstream in("output.txt");
+        if (!in) return;
+
+        const int W = (int)resized.getSize().x;
+        const int H = (int)resized.getSize().y;
+
+        targetColors.clear();
+        targetColors.reserve((std::size_t)PARTICLE_COUNT);
+
+        float x, y;
+        while (targetColors.size() < (std::size_t)PARTICLE_COUNT && (in >> x >> y)) {
+            int px = clampi((int)std::lround(x), 0, W - 1);
+            int py = clampi((int)std::lround(y), 0, H - 1);
+            targetColors.push_back(resized.getPixel((unsigned)px, (unsigned)py));
+        }
+
+        haveTargetColors = !targetColors.empty();
+    }
 
     void workerLoop() {
         uint64_t localGen = 0;
@@ -172,7 +262,7 @@ private:
         if (dist2 < 1e-12f) { v = {1.f, 0.f}; dist2 = 1.f; }
 
         float min2 = min_dist * min_dist;
-        if (dist2 >= min2) return; // not overlapping
+        if (dist2 >= min2) return;
 
         float dist = std::sqrt(dist2);
 
@@ -259,6 +349,8 @@ public:
         particles.reserve(count);
         grid.resize(GRID_ROWS * GRID_COLS);
 
+        initTargetColorsIfAvailable();
+
         int threadCount = static_cast<int>(std::thread::hardware_concurrency());
         buildSlices(threadCount);
         workers.reserve(threadCount);
@@ -280,25 +372,38 @@ public:
         for (auto &th : workers) {
             th.join();
         }
+        std::ofstream file("output.txt");
+        for (auto &p : particles) {
+            file << p.position.x << " " << p.position.y << "\n";
+        }
+        file.close();
     }
 
     void spawnIfPossible(const float elapsed_time, sf::Clock& spawner) {
         if (elapsed_time >= SPAWN_DELAY && particles.size() < (size_t)PARTICLE_COUNT) {
-            sf::Color color(rand() % 255, rand() % 255, rand() % 255);
+            auto colorForIndex = [&](std::size_t idx) -> sf::Color {
+                if (haveTargetColors && idx < targetColors.size()) return targetColors[idx];
+                return sf::Color(rand() % 255, rand() % 255, rand() % 255);
+            };
+
             const float substep_dt = dt / static_cast<float>(SUBSTEPS);
 
             sf::Vector2f v(-100.f, 0.f);
 
             if (particles.size() + 21 > (size_t)PARTICLE_COUNT) {
                 int diff = (int)PARTICLE_COUNT - (int)particles.size();
-                for (int i = 0; i < diff; ++i) particles.emplace_back(startPos, 2.f, color);
+                for (int i = 0; i < diff; ++i) {
+                    std::size_t idx = particles.size();
+                    particles.emplace_back(startPos, 2.f, colorForIndex(idx));
+                }
 
                 for (int i = (int)particles.size() - diff; i < (int)particles.size(); ++i)
                     particles[i].prev_position = particles[i].position - startingVel * substep_dt;
 
             } else {
                 for (int i = 0; i < 21; ++i) {
-                    particles.emplace_back(startPos + v, 2.f, color);
+                    std::size_t idx = particles.size();
+                    particles.emplace_back(startPos + v, 2.f, colorForIndex(idx));
                     v.x += 10;
                 }
 
