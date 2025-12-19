@@ -12,9 +12,7 @@
 #include <mutex>
 #include <atomic>
 
-#include <fstream>
-#include <filesystem>
-
+#include "ImageInput.hpp"
 #include "Config.hpp"
 #include "Particle.hpp"
 #include "ParticleRenderer.hpp"
@@ -26,6 +24,7 @@ struct Slice {
 
 class World {
 private:
+    const bool savePos;
     const int PARTICLE_COUNT;
     const int SUBSTEPS;
 
@@ -64,92 +63,7 @@ private:
     std::atomic<int> remaining{0};
     uint64_t generation = 0;
 
-    std::vector<sf::Color> targetColors;
-    bool haveTargetColors = false;
-
-    static int clampi(int v, int lo, int hi) {
-        return std::max(lo, std::min(v, hi));
-    }
-
-    static sf::Image scaleNearest(const sf::Image& src, unsigned dstW, unsigned dstH) {
-        sf::Image dst;
-        dst.create(dstW, dstH);
-
-        const unsigned srcW = src.getSize().x;
-        const unsigned srcH = src.getSize().y;
-
-        for (unsigned y = 0; y < dstH; ++y) {
-            const unsigned sy = (srcH * y) / dstH;
-            for (unsigned x = 0; x < dstW; ++x) {
-                const unsigned sx = (srcW * x) / dstW;
-                dst.setPixel(x, y, src.getPixel(sx, sy));
-            }
-        }
-
-        return dst;
-    }
-
-    bool findAssetImagePath(std::string& out) const {
-        namespace fs = std::filesystem;
-
-        static const char* candidates[] = {
-            "../assets/image.png",
-            "../assets/image.jpg",
-            "../assets/image.jpeg",
-            "../assets/image.bmp",
-            "../assets/image.tga",
-            "assets/image.png",
-            "assets/image.jpg",
-            "assets/image.jpeg",
-            "assets/image.bmp",
-            "assets/image.tga"
-        };
-
-        for (const char* p : candidates) {
-            fs::path fp(p);
-            if (fs::exists(fp) && fs::is_regular_file(fp)) {
-                out = fp.string();
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void initTargetColorsIfAvailable() {
-        namespace fs = std::filesystem;
-
-        std::string imgPath;
-        if (!findAssetImagePath(imgPath)) return;
-        if (!fs::exists("output.txt") || !fs::is_regular_file("output.txt")) return;
-
-        sf::Image src;
-        if (!src.loadFromFile(imgPath)) return;
-
-        sf::Image resized;
-        if (src.getSize().x == (unsigned)SCREEN_WIDTH && src.getSize().y == (unsigned)SCREEN_HEIGHT) {
-            resized = src;
-        } else {
-            resized = scaleNearest(src, (unsigned)SCREEN_WIDTH, (unsigned)SCREEN_HEIGHT);
-        }
-
-        std::ifstream in("output.txt");
-        if (!in) return;
-
-        const int W = (int)resized.getSize().x;
-        const int H = (int)resized.getSize().y;
-
-        targetColors.clear();
-        targetColors.reserve((std::size_t)PARTICLE_COUNT);
-
-        float x, y;
-        while (targetColors.size() < (std::size_t)PARTICLE_COUNT && (in >> x >> y)) {
-            int px = clampi((int)std::lround(x), 0, W - 1);
-            int py = clampi((int)std::lround(y), 0, H - 1);
-            targetColors.push_back(resized.getPixel((unsigned)px, (unsigned)py));
-        }
-
-        haveTargetColors = !targetColors.empty();
-    }
+    ImageInput imgInp = ImageInput(PARTICLE_COUNT);
 
     void workerLoop() {
         uint64_t localGen = 0;
@@ -342,14 +256,15 @@ private:
 public:
     std::vector<Particle> particles;
 
-    World(const int count, const int substeps)
-        : PARTICLE_COUNT(count)
+    World(const int count, const int substeps, const bool savePos)
+        : savePos(savePos)
+        , PARTICLE_COUNT(count)
         , SUBSTEPS(substeps)
     {
         particles.reserve(count);
         grid.resize(GRID_ROWS * GRID_COLS);
 
-        initTargetColorsIfAvailable();
+        imgInp.initTargetColorsIfAvailable();
 
         int threadCount = static_cast<int>(std::thread::hardware_concurrency());
         buildSlices(threadCount);
@@ -372,17 +287,20 @@ public:
         for (auto &th : workers) {
             th.join();
         }
-        std::ofstream file("output.txt");
-        for (auto &p : particles) {
-            file << p.position.x << " " << p.position.y << "\n";
+
+        if (savePos) {
+            std::ofstream file("output.txt");
+            for (auto &p : particles) {
+                file << p.position.x << " " << p.position.y << "\n";
+            }
+            file.close();
         }
-        file.close();
     }
 
     void spawnIfPossible(const float elapsed_time, sf::Clock& spawner) {
         if (elapsed_time >= SPAWN_DELAY && particles.size() < (size_t)PARTICLE_COUNT) {
             auto colorForIndex = [&](std::size_t idx) -> sf::Color {
-                if (haveTargetColors && idx < targetColors.size()) return targetColors[idx];
+                if (imgInp.haveTargetColors && idx < imgInp.targetColors.size()) return imgInp.targetColors[idx];
                 return sf::Color(rand() % 255, rand() % 255, rand() % 255);
             };
 
@@ -478,34 +396,4 @@ public:
         renderer.build(particles);
         renderer.draw(window);
     }
-};
-
-class VisualText {
-private:
-    sf::Font font;
-    sf::Text particleCount, timeBetweenFrames;
-
-public:
-    VisualText() {
-        font.loadFromFile("../assets/arial.ttf");
-
-        particleCount.setFont(font);
-        particleCount.setString("--");
-        particleCount.setCharacterSize(24);
-        particleCount.setFillColor(sf::Color::Black);
-
-        timeBetweenFrames.setFont(font);
-        timeBetweenFrames.setString("--");
-        timeBetweenFrames.setCharacterSize(24);
-        timeBetweenFrames.setFillColor(sf::Color::Black);
-        timeBetweenFrames.setPosition(0.f, 30.f);
-    }
-
-    void draw(sf::RenderWindow& window) const {
-        window.draw(particleCount);
-        window.draw(timeBetweenFrames);
-    }
-
-    void setParticle(std::string cnt) { particleCount.setString(cnt); }
-    void setFrames(std::string cnt)   { timeBetweenFrames.setString(cnt + "ms"); }
 };
