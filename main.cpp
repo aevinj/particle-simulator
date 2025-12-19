@@ -4,6 +4,7 @@
 #include "Config.hpp"
 #include "World.hpp"
 #include "Particle.hpp"
+#include "VisualText.hpp"
 
 int main() {
     srand(1);
@@ -15,8 +16,8 @@ int main() {
     VisualText visualText;
     InputState inpState;
 
-    // Particle count, substeps 
-    World world(40'000, 8);
+    // Particle count, substeps, savePos (1 = yes, 0 = no)
+    World world(56'000, 8, 0);
 
     while (window.isOpen()) {
         sf::Event event;

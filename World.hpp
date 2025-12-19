@@ -7,12 +7,24 @@
 #include <iostream>
 #include <algorithm>
 
+#include <thread>
+#include <condition_variable>
+#include <mutex>
+#include <atomic>
+
+#include "ImageInput.hpp"
 #include "Config.hpp"
 #include "Particle.hpp"
 #include "ParticleRenderer.hpp"
 
+struct Slice {
+    int start;
+    int end;
+};
+
 class World {
 private:
+    const bool savePos;
     const int PARTICLE_COUNT;
     const int SUBSTEPS;
 
@@ -41,6 +53,91 @@ private:
     };
     std::vector<Cell> grid;
 
+    std::mutex mtx;
+    std::condition_variable cvDone, cvWork;
+    std::vector<std::thread> workers;
+    std::atomic<bool> stop{false};
+    std::vector<Slice> evenSlices, oddSlices;
+    const std::vector<Slice>* currentSlices = nullptr;
+    std::atomic<std::size_t> nextJob{0};
+    std::atomic<int> remaining{0};
+    uint64_t generation = 0;
+
+    ImageInput imgInp = ImageInput(PARTICLE_COUNT);
+
+    void workerLoop() {
+        uint64_t localGen = 0;
+
+        while (true) {
+            const std::vector<Slice>* slicesPtr = nullptr;
+
+            {
+                std::unique_lock<std::mutex> lock(mtx);
+                cvWork.wait(lock, [this, &localGen] () {
+                    return stop.load(std::memory_order_acquire) || generation != localGen;
+                });
+
+                if (stop.load(std::memory_order_acquire)) return;
+
+                localGen = generation;
+                slicesPtr = currentSlices;
+            }
+
+            for (;;) {
+                size_t j = nextJob.fetch_add(1, std::memory_order_relaxed);
+                if (j >= slicesPtr->size()) break;
+                solveSlice((*slicesPtr)[j]);
+            }
+
+            if (remaining.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                std::lock_guard<std::mutex> lock(mtx);
+                cvDone.notify_one();
+            }
+        }
+    }
+
+    void runPass(const std::vector<Slice> &slices) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            currentSlices = &slices;
+            nextJob.store(0, std::memory_order_relaxed);
+            remaining.store(static_cast<int>(workers.size()), std::memory_order_relaxed);
+            generation++;
+        }
+
+        cvWork.notify_all();
+
+        std::unique_lock<std::mutex> lock(mtx);
+        cvDone.wait(lock, [this] () {
+            return remaining.load(std::memory_order_relaxed) == 0;
+        });
+    }
+
+    void buildSlices(int threadCount) {
+        evenSlices.clear();
+        oddSlices.clear();
+
+        const int minSliceWidth = 2;
+        const int maxSliceCount = GRID_COLS / minSliceWidth;
+
+        int sliceCount = std::min(2 * threadCount, maxSliceCount);
+        if (sliceCount < 2) sliceCount = 2;
+        if (sliceCount % 2 == 1) --sliceCount;
+
+        const int baseW = GRID_COLS / sliceCount;
+        const int rem   = GRID_COLS % sliceCount;
+
+        int x = 0;
+        for (int s = 0; s < sliceCount; ++s) {
+            int w = baseW + (s < rem ? 1 : 0);
+            Slice sl{ x, x + w };
+            x += w;
+
+            if ((s & 1) == 0) evenSlices.push_back(sl);
+            else              oddSlices.push_back(sl);
+        }
+    }
+
     void clearGrid() {
         for (auto &c : grid) c.count = 0;
     }
@@ -68,7 +165,7 @@ private:
     }
 
     inline int cellIndex(int cx, int cy) const {
-        return cy * GRID_COLS + cx;
+        return cx * GRID_ROWS + cy;
     }
 
     void resolveCollision(Particle& a, Particle& b) {
@@ -79,7 +176,7 @@ private:
         if (dist2 < 1e-12f) { v = {1.f, 0.f}; dist2 = 1.f; }
 
         float min2 = min_dist * min_dist;
-        if (dist2 >= min2) return; // not overlapping
+        if (dist2 >= min2) return;
 
         float dist = std::sqrt(dist2);
 
@@ -90,35 +187,38 @@ private:
         b.position -= n;
     }
 
-    void checkCollisionsForward() {
-        for (int cellIdx = 0; cellIdx < grid.size(); ++cellIdx) {
-            auto &c = grid[cellIdx];
+    void solveSlice(const Slice &s) {
+        for (int x = s.start; x < s.end; ++x) {
+            const int base = x * GRID_ROWS;
 
-            if (c.count == 0) continue;
+            for (int y = 0; y < GRID_ROWS; ++y) {
+                const int cellIdx = base + y;
+                Cell &c = grid[cellIdx];
 
-            if (c.count >= 2) {
-                for (std::size_t i = 0; i < c.count; ++i) {
-                    int aIdx = c.ids[i];
-                    for (std::size_t j = i + 1; j < c.count; ++j) {
-                        int bIdx = c.ids[j];
-                        resolveCollision(particles[aIdx], particles[bIdx]);
+                if (c.count == 0) continue;
+
+                if (c.count >= 2) {
+                    for (std::size_t i = 0; i < c.count; ++i) {
+                        int aIdx = c.ids[i];
+                        for (std::size_t j = i + 1; j < c.count; ++j) {
+                            int bIdx = c.ids[j];
+                            resolveCollision(particles[aIdx], particles[bIdx]);
+                        }
                     }
                 }
-            }
 
-            int x = cellIdx % GRID_COLS;
-            int y = cellIdx / GRID_COLS;
-            for (int k = 0; k < 4; ++k) {
-                int nx = x + ndx[k];
-                int ny = y + ndy[k];
-                if (!inBoundsCell(nx, ny)) continue;
+                for (int k = 0; k < 4; ++k) {
+                    int nx = x + ndx[k];
+                    int ny = y + ndy[k];
+                    if (!inBoundsCell(nx, ny)) continue;
 
-                auto &ncell = grid[cellIndex(nx, ny)];
-                if (ncell.count == 0) continue;
+                    auto &ncell = grid[cellIndex(nx, ny)];
+                    if (ncell.count == 0) continue;
 
-                for (int aIdx = 0; aIdx < c.count; ++aIdx) {
-                    for (int bIdx = 0; bIdx < ncell.count; ++bIdx) {
-                        resolveCollision(particles[c.ids[aIdx]], particles[ncell.ids[bIdx]]);
+                    for (int aIdx = 0; aIdx < c.count; ++aIdx) {
+                        for (int bIdx = 0; bIdx < ncell.count; ++bIdx) {
+                            resolveCollision(particles[c.ids[aIdx]], particles[ncell.ids[bIdx]]);
+                        }
                     }
                 }
             }
@@ -156,31 +256,72 @@ private:
 public:
     std::vector<Particle> particles;
 
-    World(const int count, const int substeps)
-        : PARTICLE_COUNT(count)
+    World(const int count, const int substeps, const bool savePos)
+        : savePos(savePos)
+        , PARTICLE_COUNT(count)
         , SUBSTEPS(substeps)
     {
         particles.reserve(count);
         grid.resize(GRID_ROWS * GRID_COLS);
+
+        imgInp.initTargetColorsIfAvailable();
+
+        int threadCount = static_cast<int>(std::thread::hardware_concurrency());
+        buildSlices(threadCount);
+        workers.reserve(threadCount);
+        for (int i = 0; i < threadCount; ++i) {
+            workers.emplace_back([this] () {
+                workerLoop();
+            });
+        }
+    }
+
+    ~World() {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            stop.store(true, std::memory_order_release);
+            generation++;
+        }
+        cvWork.notify_all();
+
+        for (auto &th : workers) {
+            th.join();
+        }
+
+        if (savePos) {
+            std::ofstream file("output.txt");
+            for (auto &p : particles) {
+                file << p.position.x << " " << p.position.y << "\n";
+            }
+            file.close();
+        }
     }
 
     void spawnIfPossible(const float elapsed_time, sf::Clock& spawner) {
         if (elapsed_time >= SPAWN_DELAY && particles.size() < (size_t)PARTICLE_COUNT) {
-            sf::Color color(rand() % 255, rand() % 255, rand() % 255);
+            auto colorForIndex = [&](std::size_t idx) -> sf::Color {
+                if (imgInp.haveTargetColors && idx < imgInp.targetColors.size()) return imgInp.targetColors[idx];
+                return sf::Color(rand() % 255, rand() % 255, rand() % 255);
+            };
+
             const float substep_dt = dt / static_cast<float>(SUBSTEPS);
 
             sf::Vector2f v(-100.f, 0.f);
 
             if (particles.size() + 21 > (size_t)PARTICLE_COUNT) {
                 int diff = (int)PARTICLE_COUNT - (int)particles.size();
-                for (int i = 0; i < diff; ++i) particles.emplace_back(startPos, 2.f, color);
+                for (int i = 0; i < diff; ++i) {
+                    std::size_t idx = particles.size();
+                    particles.emplace_back(startPos, 2.f, colorForIndex(idx));
+                }
 
                 for (int i = (int)particles.size() - diff; i < (int)particles.size(); ++i)
                     particles[i].prev_position = particles[i].position - startingVel * substep_dt;
 
             } else {
                 for (int i = 0; i < 21; ++i) {
-                    particles.emplace_back(startPos + v, 2.f, color);
+                    std::size_t idx = particles.size();
+                    particles.emplace_back(startPos + v, 2.f, colorForIndex(idx));
                     v.x += 10;
                 }
 
@@ -230,7 +371,8 @@ public:
                 }
             }
 
-            checkCollisionsForward();
+            runPass(evenSlices);
+            runPass(oddSlices);
 
             for (auto& p : particles) {
                 p.applyBorderBounce((float)SCREEN_WIDTH, (float)SCREEN_HEIGHT, padding, dampening);
@@ -254,34 +396,4 @@ public:
         renderer.build(particles);
         renderer.draw(window);
     }
-};
-
-class VisualText {
-private:
-    sf::Font font;
-    sf::Text particleCount, timeBetweenFrames;
-
-public:
-    VisualText() {
-        font.loadFromFile("../assets/arial.ttf");
-
-        particleCount.setFont(font);
-        particleCount.setString("--");
-        particleCount.setCharacterSize(24);
-        particleCount.setFillColor(sf::Color::Black);
-
-        timeBetweenFrames.setFont(font);
-        timeBetweenFrames.setString("--");
-        timeBetweenFrames.setCharacterSize(24);
-        timeBetweenFrames.setFillColor(sf::Color::Black);
-        timeBetweenFrames.setPosition(0.f, 30.f);
-    }
-
-    void draw(sf::RenderWindow& window) const {
-        window.draw(particleCount);
-        window.draw(timeBetweenFrames);
-    }
-
-    void setParticle(std::string cnt) { particleCount.setString(cnt); }
-    void setFrames(std::string cnt)   { timeBetweenFrames.setString(cnt + "ms"); }
 };
